@@ -1,0 +1,24 @@
+class ModelSelector:
+    def __init__(self):
+        pass
+
+    def get_next_item_to_label(self):
+        """
+        Return:
+            (index, selection probability)
+        """
+        pass
+
+    def add_label(self, chosen_idx, true_class, selection_prob):
+        pass
+
+    def get_best_model_prediction(self):
+        pass
+    
+    # optional
+    def get_risk_estimates(self):
+        pass
+    
+    # optional
+    def get_additional_to_log(self):
+        pass
