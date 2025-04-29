@@ -1092,6 +1092,26 @@ class CODA(ModelSelector):
         self.d_u_idxs = list(range(dataset.pred_logits.shape[1]))
         self.qms = []
 
+    @classmethod
+    def from_args(cls, dataset, args):
+        """Init from command line args. See main.py."""
+        return cls(dataset,
+                    prior_source=args.prior_source, 
+                    q=args.q,
+                    prefilter_fn=args.prefilter_fn,
+                    prefilter_n=args.prefilter_n,
+                    epsilon=args.epsilon,
+                    update_rule=args.update_rule,
+                    # update_strength=args.update_strength,
+                    # prior_strength=args.prior_strength,
+                    # base_strength=args.base_strength,
+                    # hypothetical_update_strength=args.hypothetical_update_strength,
+                    temperature=args.temperature,
+                    alpha=args.alpha,
+                    learning_rate_ratio=args.learning_rate_ratio,
+                    base_prior=args.base_prior
+                )
+
     def get_next_item_to_label(self):
         pred_classes = torch.argmax(self.dataset.pred_logits, dim=-1)
 

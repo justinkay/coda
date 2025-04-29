@@ -1,15 +1,4 @@
-# LOGGING = 'local' # 'wandb'
-
-VERSION = 0.2 # 0.0
-
-# if LOGGING == 'comet':
-#     import comet_ml # import this first to avoid warnings
-# elif LOGGING == 'wandb':
-#     import wandb
-# else:
-#     import csv
 import mlflow
-
 import argparse
 import random
 import numpy as np
@@ -18,14 +7,11 @@ from tqdm import tqdm
 import os
 from torchmetrics import Accuracy
 
-# from experiment import initialize_experiment_wandb, initialize_experiment_comet
-from options import LOSS_FNS, ACCURACY_FNS
-from datasets import Dataset
-from oracle import Oracle
-
 from coda import CODA
 from coda.baselines import IID, ActiveTesting, VMA, ModelPicker, Uncertainty
-
+from datasets import Dataset
+from options import LOSS_FNS, ACCURACY_FNS
+from oracle import Oracle
 
 
 def seed_all(seed):
@@ -40,27 +26,14 @@ def seed_all(seed):
 def parse_args():
     parser = argparse.ArgumentParser()
     # dataset settings
-    # parser.add_argument("--dataset", help="{ 'domainnet126', ... } ", default=None)
     parser.add_argument("--task", help="{ 'sketch_painting', ... }", default=None)
-    # parser.add_argument("--best-epochs-only", action='store_true', help="Keep only best checkpoint from each hparam run")
-    # parser.add_argument("--best-hparams-only", action='store_true', help="Keep only best hyperparameter setting from each algorithm")
     parser.add_argument("--data-dir", default='data')
 
     # benchmarking settings
     parser.add_argument("--acc", help="Accuracy fn. Options specific to dataset, see main.py.", default="acc")
     parser.add_argument("--iters", type=int, default=100)
-    # parser.add_argument("--subsample-pct", type=int, help="Percentage of runs to analyze",  default=100)
-    # parser.add_argument("--force-reload", action='store_true', help="Load directly from feature files rather than large dat file.")
-    # parser.add_argument("--no-write", action='store_true', help="Don't write preds to an intermediate .dat or .pt file.")
-    # parser.add_argument("--no-comet", action='store_true', help="Disable logging with Comet ML")
-    # parser.add_argument("--no-wandb", action='store_true', help="Disable logging with wandb")
-    # parser.add_argument("--filter-bad", action='store_true', help="Filter bad models using the oracle")
     parser.add_argument("--seeds", type=int, default=5) # how many seeds to use - one experiment per seed
-    # parser.add_argument("--name", help="Readable name for the experiment. If blank, will concatenate args.", default="")
     parser.add_argument("--force-rerun", action="store_true", help="Overwrite existing comet runs.")
-    if VERSION > 0.0:
-        parser.add_argument("--log-every", action="store_true")
-        parser.add_argument("--log-dir", default="my_logs_0305/")
     parser.add_argument("--experiment-name", default=None) # overrides default of using task as experiment name
 
     # method settings
@@ -77,15 +50,9 @@ def parse_args():
     parser.add_argument("--prior-source", default="ens-exp", help="{ 'ens-exp', 'ens-01', 'ds', 'ens-soft-01' }")
     parser.add_argument("--item-priors", default='ens', help="{ 'none', 'ens', bma-adaptive' }")
     parser.add_argument("--update-rule", default="hard", help="Hard or soft dirichlet confusion matrix updates")
-
-    # deprecating
-    if VERSION == 0.0:
-        parser.add_argument("--update-strength", default=1.0, type=float, help="Multiplicative factor for beta posterior updates")
-        parser.add_argument("--base-strength", default=1.0, type=float)
-        parser.add_argument("--hypothetical-update-strength", default=1.0, type=float)
-    else:
-        parser.add_argument("--base-prior", default="diag")
-
+    
+    # CODA settings
+    parser.add_argument("--base-prior", default="diag")
     parser.add_argument("--temperature", default=1.0, type=float)
     parser.add_argument("--alpha", default=0.9, type=float)
     parser.add_argument("--learning-rate-ratio", default=0.01, type=float)
@@ -105,22 +72,7 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
     elif args.method == 'uncertainty':
         selector = Uncertainty(dataset, loss_fn)
     elif args.method == 'coda':
-        selector = CODA(dataset,
-                            prior_source=args.prior_source, 
-                            q=args.q,
-                            prefilter_fn=args.prefilter_fn,
-                            prefilter_n=args.prefilter_n,
-                            epsilon=args.epsilon,
-                            update_rule=args.update_rule,
-                            # update_strength=args.update_strength,
-                            # prior_strength=args.prior_strength,
-                            # base_strength=args.base_strength,
-                            # hypothetical_update_strength=args.hypothetical_update_strength,
-                            temperature=args.temperature,
-                            alpha=args.alpha,
-                            learning_rate_ratio=args.learning_rate_ratio,
-                            base_prior=args.base_prior
-                        )
+        selector = CODA.from_args(dataset, args)
     elif args.method == 'activetesting':
         selector = ActiveTesting(dataset, loss_fn)
     elif args.method == 'vma':
@@ -135,7 +87,7 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
                                prior_source=args.prior_source,
                                item_prior_source=args.item_priors)
 
-    # active model selection loop
+    ## Active model selection loop
     cumulative_regret_loss = 0
     for m in tqdm(range(args.iters)):
         # select item, label, select model
@@ -144,10 +96,10 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
         selector.add_label(chosen_idx, true_class, selection_prob)
         best_model_idx_pred = selector.get_best_model_prediction()
 
+        # compute and log metrics
         regret_loss = true_losses[best_model_idx_pred] - best_loss
         cumulative_regret_loss += regret_loss
         print("Regret at", m, ":", regret_loss)
-
         mlflow.log_metric("regret", regret_loss.item(), step=m+1)
         mlflow.log_metric("cumulative regret", cumulative_regret_loss.item(), step=m+1)
 
