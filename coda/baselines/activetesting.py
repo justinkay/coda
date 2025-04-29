@@ -2,8 +2,8 @@ import random
 import torch
 import torch.nn.functional as F
 
-from ams.base import ModelSelector
-from ams.iid import IID
+from coda.base import ModelSelector
+from coda.baselines.iid import IID
 from surrogates import Ensemble
 
 class ActiveTesting(IID):

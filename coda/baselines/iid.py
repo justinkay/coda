@@ -1,7 +1,8 @@
 import random
 import torch
-from ams.base import ModelSelector
-from ams.bb import weighted_disagreement_candidates  # keep or move as needed
+from coda.base import ModelSelector
+from coda.beta import weighted_disagreement_candidates  # keep or move as needed
+
 
 class IID(ModelSelector):
     def __init__(self, dataset, loss_fn):

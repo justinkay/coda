@@ -6,8 +6,8 @@ import random
 
 import metrics
 from surrogates import Ensemble, WeightedEnsemble, DawidSkeneModel
-from ams.base import ModelSelector
-from ams.bb import distribution_entropy, sample_is_best_worker_beta_batched
+from coda.base import ModelSelector
+from coda.beta import distribution_entropy, sample_is_best_worker_beta_batched
 
 
 def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
@@ -1009,7 +1009,7 @@ def l1_dirichlet_batched(
     return results
 
 
-class Dirichlet(ModelSelector):
+class CODA(ModelSelector):
     def __init__(self, dataset,
                 prior_source="ens",
                 q='eig',                       # acquisition function

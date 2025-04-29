@@ -2,7 +2,7 @@ import random
 import torch
 import torch.nn.functional as F
 
-from ams.baselines.activetesting import ActiveTesting
+from coda.baselines.activetesting import ActiveTesting
 
 class VMA(ActiveTesting):
     def __init__(self, dataset, loss_fn, prefilter_fn=None, prefilter_n=500):

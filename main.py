@@ -20,13 +20,13 @@ from torchmetrics import Accuracy
 
 # from experiment import initialize_experiment_wandb, initialize_experiment_comet
 from options import LOSS_FNS, ACCURACY_FNS
-from ams.iid import IID
-from ams.bb import BB
-from ams.dirichlet import Dirichlet
-from ams.baselines import ActiveTesting, VMA, ModelPicker, Uncertainty
-
 from datasets import Dataset
 from oracle import Oracle
+
+from coda import CODA
+from coda.baselines import IID, ActiveTesting, VMA, ModelPicker, Uncertainty
+
+
 
 def seed_all(seed):
     random.seed(seed)
@@ -104,21 +104,8 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
         selector = IID(dataset, loss_fn)
     elif args.method == 'uncertainty':
         selector = Uncertainty(dataset, loss_fn)
-    elif args.method == 'beta':
-        selector = BB(dataset, 
-                      prior_source=args.prior_source, 
-                      prior_strength=args.prior_strength,
-                      q=args.q,
-                      select=args.select,
-                      stochastic=args.stochastic,
-                      importance_weighting=args.importance_weighting,
-                      prefilter_fn=args.prefilter_fn,
-                      prefilter_n=args.prefilter_n,
-                      epsilon=args.epsilon,
-                      item_prior_source=args.item_priors,
-                      update_strength=args.update_strength)
-    elif args.method == 'dirichlet':
-        selector = Dirichlet(dataset,
+    elif args.method == 'coda':
+        selector = CODA(dataset,
                             prior_source=args.prior_source, 
                             q=args.q,
                             prefilter_fn=args.prefilter_fn,
@@ -139,7 +126,7 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
     elif args.method == 'vma':
         selector = VMA(dataset, loss_fn)
     elif args.method == 'model_picker':
-        from ams.baselines.modelpicker import TASK_EPS
+        from coda.baselines.modelpicker import TASK_EPS
         if args.task not in TASK_EPS.keys():
             print(args.task, "not in TASK_EPS; using default")
         epsilon = args.epsilon if args.epsilon > 0.0 else TASK_EPS[args.task]

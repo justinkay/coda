@@ -1,6 +1,6 @@
 import torch
 
-from ams.iid import IID
+from coda.baselines.iid import IID
 
 
 class Uncertainty(IID):

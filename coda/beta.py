@@ -5,7 +5,7 @@ import random
 
 import metrics
 from surrogates import Ensemble, WeightedEnsemble, DawidSkeneModel
-from ams.base import ModelSelector
+from coda.base import ModelSelector
 
 
 def sample_is_best_worker(alpha: torch.Tensor,
