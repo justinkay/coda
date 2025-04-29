@@ -7,7 +7,7 @@ from acquisition import iid_acquisition, lure_acquisition_ce, lure_acquisition_a
 from estimators import EmpiricalRisk, LUREEstimator, ASIEstimator, ASEEstimator, ASEPPIEstimator
 from surrogates import Ensemble, WeightedEnsemble, TrainableEnsemble, OracleSurrogate, EMsemble
 from posteriors import eig_q
-from oracle import Oracle, WILDSOracle, MODELSELECTOROracle
+# from oracle import Oracle, WILDSOracle, MODELSELECTOROracle
 
 def accuracy_loss(preds, labels, **kwargs):
     """Get 1 - accuracy (a loss), nonreduced. Handles whether we are working with scores or integer labels."""
@@ -23,11 +23,11 @@ def accuracy_loss(preds, labels, **kwargs):
     return 1 - accs
 
 
-DATASETS = {
-    'domainnet126': datasets.DomainNet126,
-    'wilds': datasets.WILDSDataset,
-    'modelselector': datasets.MODELSELECTORDataset
-}
+# DATASETS = {
+#     'domainnet126': datasets.DomainNet126,
+#     'wilds': datasets.WILDSDataset,
+#     'modelselector': datasets.MODELSELECTORDataset
+# }
 
 LOSS_FNS = {
     'ce': cross_entropy,
@@ -74,8 +74,8 @@ Q_FNS = {
     'eig': eig_q
 }
 
-ORACLES = {
-    'domainnet126': Oracle,
-    'wilds': WILDSOracle, 
-    'modelselector': MODELSELECTOROracle
-}
+# ORACLES = {
+#     'domainnet126': Oracle,
+#     'wilds': WILDSOracle, 
+#     'modelselector': MODELSELECTOROracle
+# }

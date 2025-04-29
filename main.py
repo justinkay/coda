@@ -1,27 +1,32 @@
-LOGGING = 'local' # 'wandb'
+# LOGGING = 'local' # 'wandb'
 
-VERSION = 0.1 # 0.0
+VERSION = 0.2 # 0.0
 
-if LOGGING == 'comet':
-    import comet_ml # import this first to avoid warnings
-elif LOGGING == 'wandb':
-    import wandb
-else:
-    import csv
+# if LOGGING == 'comet':
+#     import comet_ml # import this first to avoid warnings
+# elif LOGGING == 'wandb':
+#     import wandb
+# else:
+#     import csv
+import mlflow
 
 import argparse
 import random
 import numpy as np
 import torch
 from tqdm import tqdm
+import os
+from torchmetrics import Accuracy
 
 # from experiment import initialize_experiment_wandb, initialize_experiment_comet
-from options import DATASETS, LOSS_FNS, ACCURACY_FNS, ORACLES
+from options import LOSS_FNS, ACCURACY_FNS
 from ams.iid import IID
 from ams.bb import BB
 from ams.dirichlet import Dirichlet
 from ams.baselines import ActiveTesting, VMA, ModelPicker, Uncertainty
 
+from datasets import Dataset
+from oracle import Oracle
 
 def seed_all(seed):
     random.seed(seed)
@@ -35,26 +40,28 @@ def seed_all(seed):
 def parse_args():
     parser = argparse.ArgumentParser()
     # dataset settings
-    parser.add_argument("--dataset", help="{ 'domainnet126', ... } ", default=None)
+    # parser.add_argument("--dataset", help="{ 'domainnet126', ... } ", default=None)
     parser.add_argument("--task", help="{ 'sketch_painting', ... }", default=None)
-    parser.add_argument("--best-epochs-only", action='store_true', help="Keep only best checkpoint from each hparam run")
+    # parser.add_argument("--best-epochs-only", action='store_true', help="Keep only best checkpoint from each hparam run")
     # parser.add_argument("--best-hparams-only", action='store_true', help="Keep only best hyperparameter setting from each algorithm")
+    parser.add_argument("--data-dir", default='data')
 
     # benchmarking settings
     parser.add_argument("--acc", help="Accuracy fn. Options specific to dataset, see main.py.", default="acc")
     parser.add_argument("--iters", type=int, default=100)
-    parser.add_argument("--subsample-pct", type=int, help="Percentage of runs to analyze",  default=100)
-    parser.add_argument("--force-reload", action='store_true', help="Load directly from feature files rather than large dat file.")
-    parser.add_argument("--no-write", action='store_true', help="Don't write preds to an intermediate .dat or .pt file.")
-    parser.add_argument("--no-comet", action='store_true', help="Disable logging with Comet ML")
-    parser.add_argument("--no-wandb", action='store_true', help="Disable logging with wandb")
-    parser.add_argument("--filter-bad", action='store_true', help="Filter bad models using the oracle")
+    # parser.add_argument("--subsample-pct", type=int, help="Percentage of runs to analyze",  default=100)
+    # parser.add_argument("--force-reload", action='store_true', help="Load directly from feature files rather than large dat file.")
+    # parser.add_argument("--no-write", action='store_true', help="Don't write preds to an intermediate .dat or .pt file.")
+    # parser.add_argument("--no-comet", action='store_true', help="Disable logging with Comet ML")
+    # parser.add_argument("--no-wandb", action='store_true', help="Disable logging with wandb")
+    # parser.add_argument("--filter-bad", action='store_true', help="Filter bad models using the oracle")
     parser.add_argument("--seeds", type=int, default=5) # how many seeds to use - one experiment per seed
-    parser.add_argument("--name", help="Readable name for the experiment. If blank, will concatenate args.", default="")
+    # parser.add_argument("--name", help="Readable name for the experiment. If blank, will concatenate args.", default="")
     parser.add_argument("--force-rerun", action="store_true", help="Overwrite existing comet runs.")
     if VERSION > 0.0:
         parser.add_argument("--log-every", action="store_true")
         parser.add_argument("--log-dir", default="my_logs_0305/")
+    parser.add_argument("--experiment-name", default=None) # overrides default of using task as experiment name
 
     # method settings
     parser.add_argument("--loss", help="{ 'ce', 'acc', ... }", default="acc",)
@@ -88,23 +95,10 @@ def parse_args():
 def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
     seed_all(seed)
     labeler = oracle # Label function - oracle or (future work) a user
-    true_losses = oracle.true_losses(dataset.pred_logits)
+    true_losses = oracle.true_losses(dataset.preds)
+    best_loss = min(oracle.true_losses(dataset.preds))
+    print("Best possible loss is", best_loss)
 
-    # experiment = None
-    if LOGGING == 'wandb':
-        experiment = initialize_experiment_wandb(args, dataset, seed)
-    elif LOGGING == 'comet':
-        experiment = initialize_experiment_comet(args, dataset, seed)
-    # if experiment is None: return
-
-    best_loss = min(oracle.true_losses(dataset.pred_logits))
-    # experiment.log({"Best loss": best_loss})
-    # experiment.log({"All (true) losses": true_losses.cpu()})
-    # print("Best possible loss", best_loss)
-    
-    # metrics we will track
-    cumulative_regret_loss = 0
-    
     # initialize method
     if args.method == 'iid':
         selector = IID(dataset, loss_fn, 
@@ -157,118 +151,20 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
                                item_prior_source=args.item_priors)
 
     # active model selection loop
-    regrets = []
-    cum_regrets = []
+    cumulative_regret_loss = 0
     for m in tqdm(range(args.iters)):
-    
         # select item, label, select model
         chosen_idx, selection_prob = selector.get_next_item_to_label()
         true_class = labeler(chosen_idx)
         selector.add_label(chosen_idx, true_class, selection_prob)
         best_model_idx_pred = selector.get_best_model_prediction()
 
-        ### Log metrics ###
-        # experiment.log({"Pred. best model idx": best_model_idx_pred}, step=m+1)
-        # experiment.log({"Pred. best model, true loss": true_losses[best_model_idx_pred]}, step=m+1)
-
         regret_loss = true_losses[best_model_idx_pred] - best_loss
         cumulative_regret_loss += regret_loss
         print("Regret at", m, ":", regret_loss)
 
-        regrets.append(regret_loss.item())
-        cum_regrets.append(cumulative_regret_loss.item())
-
-        if VERSION > 0.0 and args.log_every:
-            if LOGGING == 'wandb':
-                experiment.log({"Regret (loss)": regret_loss}, step=m+1)
-                experiment.log({"Cumulative regret (loss)": cumulative_regret_loss}, step=m+1)
-            elif LOGGING == 'comet':
-                experiment.log_metrics({"Regret (loss)": regret_loss}, step=m+1)
-                experiment.log_metrics({"Cumulative regret (loss)": cumulative_regret_loss}, step=m+1)
-
-        # Loss estimation error 
-        # risk_estimates = selector.get_risk_estimates()
-        # if risk_estimates is not None:
-        #     loss_errors = torch.abs(true_losses - risk_estimates)
-        #     mean_loss_error = loss_errors.mean()
-            # experiment.log({"Mean absolute loss estimation error": mean_loss_error}, step=m+1)
-            # experiment.log_metrics({"Mean absolute loss estimation error": mean_loss_error}, step=m+1)
-
-        # to_log = selector.get_additional_to_log()
-        # if to_log is not None:
-        #     if LOGGING == 'wandb':
-        #         experiment.log(to_log, step=m+1)
-        #     elif LOGGING == 'comet':
-        #         experiment.log_metrics(to_log, step=m+1)
-
-    if LOGGING == 'wandb':
-        experiment.log({f"cumulative_regret_{args.iters}": cumulative_regret_loss,
-                        "all_regrets": regrets,
-                        "all_cum_regrets": cum_regrets,
-                        })
-    elif LOGGING == 'comet':
-        experiment.log_metrics({f"cumulative_regret_{args.iters}": cumulative_regret_loss,
-                        "all_regrets": regrets,
-                        "all_cum_regrets": cum_regrets,})
-    elif LOGGING == 'local':
-        alg_detail_exclude = [
-                                "best_epochs_only",
-                                "acc",
-                                "iters",
-                                "subsample_pct",
-                                "force_reload",
-                                "no_write",
-                                "no_wandb",
-                                "filter_bad",
-                                "seeds",
-                                "name",
-                                "force_rerun",
-                                "importance_weighting",
-                                "select",
-                                "update_rule",
-                                "log_every",
-                                "loss",
-                                # 'q',
-                                'epsilon',
-                                'update_strength',
-                                'base_strength',
-                                'dataset_filter',
-                                'no_comet',
-                                'prior_strength',
-                                'stochastic',
-                                'prior_source',
-                                'item_priors',
-                                'prefilter_fn',
-                                'log_dir',
-                            ]
-
-        uncertainty_exclude = [
-            'dataset_filter',
-            'prefilter_fn',
-            'prefilter_n',
-            'epsilon',
-            'update_strength',
-            'base_strength',
-            'base_prior',
-            'temperature',
-            'alpha',
-            'learning_rate_ratio',
-        ]
-        
-        all_exclude = alg_detail_exclude +  uncertainty_exclude if args.method=="uncertainty" else alg_detail_exclude
-
-        file_name =  "-".join([f"{k}={v}" for k, v in vars(args).items() if k not in all_exclude]) + f"-seed={seed}" # for consistency
-        file_name = file_name.replace("/", "|")
-        header = ['regret', 'cumulative regret']
-        data = zip(regrets, cum_regrets)
-        with open(f'{args.log_dir}/{file_name}.csv', 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(header)
-            for row in data:
-                writer.writerow(row)
-
-    if LOGGING == 'wandb':
-        wandb.finish()
+        mlflow.log_metric("regret", regret_loss.item(), step=m+1)
+        mlflow.log_metric("cumulative regret", cumulative_regret_loss.item(), step=m+1)
 
 def main():
     args = parse_args()
@@ -277,28 +173,40 @@ def main():
     print("device is", device)
 
     # Load prediction results of all hypotheses
-    dataset = DATASETS[args.dataset](args.task, use_target_val=True) #, dataset_filter=args.dataset_filter)
-    dataset.load_runs(subsample_pct=args.subsample_pct, force_reload=args.force_reload, write=not args.no_write)
-    H, N, C = dataset.pred_logits.shape
-    print("dataset.pred_logits.shape before filtering", dataset.pred_logits.shape)
-
-    # Loss and accuracy functions
-    accuracy_fn = ACCURACY_FNS[args.dataset][args.acc].to(dataset.device)
-    loss_fn = LOSS_FNS[args.loss]
+    dataset = Dataset(os.path.join(args.data_dir, args.task + ".pt"), device=device)
 
     # Create oracle
-    oracle = ORACLES[args.dataset](dataset, task=args.task, loss_fn=loss_fn, accuracy_fn=accuracy_fn)
-
-    # Filter dataset if desired
-    dataset.filter(oracle, args.best_epochs_only, 
-                    best_hparams_only=args.dataset == 'domainnet126', # TODO come back to this for big run
-                    filter_bad=args.filter_bad)
+    accuracy_fn = Accuracy(task="multiclass", num_classes=126, average="micro") # TODO
+    loss_fn = LOSS_FNS[args.loss]
+    oracle = Oracle(dataset, loss_fn=loss_fn, accuracy_fn=accuracy_fn)
     
-    # Model selection loop
-    for seed in range(args.seeds):
-        print("Running active model selection with seed", seed)
-        print("DEBUG ARGS", args.__dict__)
-        do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=seed)
+    ## Model selection loop
+    # create mlflow 'experiment' (= dataset/task)
+    experiment_name = args.experiment_name or args.task
+    mlflow.set_experiment(experiment_name)
+    
+    def get_mlflow_run_id(run_name):
+        run_id = None
+        matching_runs = mlflow.search_runs(experiment_names=['sketch_painting'], filter_string=f"tags.mlflow.runName = '{run_name}'", max_results=1)
+        if len(matching_runs): 
+            run_id = matching_runs.run_id.values[0]
+        return run_id
+
+    # create mlflow 'run' (= algorithm)
+    # check for existing and overwrite
+    run_name = "-".join([experiment_name, args.method])
+    run_id = get_mlflow_run_id(run_name)
+    with mlflow.start_run(run_id=run_id, run_name=run_name):                                              
+        mlflow.log_params(args.__dict__)
+        for seed in range(args.seeds):
+            # create nested ml flow 'run' (= seed)
+            seed_run_name = "-".join([experiment_name, args.method, str(seed)])
+            seed_run_id = get_mlflow_run_id(seed_run_name)
+            with mlflow.start_run(nested=True, run_id=seed_run_id, run_name=seed_run_name):                                         
+                mlflow.log_param("seed", seed)
+                print("Running active model selection with seed", seed)
+                print("DEBUG ARGS", args.__dict__)
+                do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=seed)
 
 if __name__ == "__main__":
     main()
