@@ -101,9 +101,7 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
 
     # initialize method
     if args.method == 'iid':
-        selector = IID(dataset, loss_fn, 
-                        prefilter_fn=args.prefilter_fn,
-                        prefilter_n=args.prefilter_n)
+        selector = IID(dataset, loss_fn)
     elif args.method == 'uncertainty':
         selector = Uncertainty(dataset, loss_fn)
     elif args.method == 'beta':
@@ -190,10 +188,12 @@ def main():
         matching_runs = mlflow.search_runs(experiment_names=['sketch_painting'], filter_string=f"tags.mlflow.runName = '{run_name}'", max_results=1)
         if len(matching_runs): 
             run_id = matching_runs.run_id.values[0]
+            # TODO: status = matching_runs.status.values[0]; check for 'FINISHED'
         return run_id
 
     # create mlflow 'run' (= algorithm)
     # check for existing and overwrite
+    # TODO: Could give option to not overwrite
     run_name = "-".join([experiment_name, args.method])
     run_id = get_mlflow_run_id(run_name)
     with mlflow.start_run(run_id=run_id, run_name=run_name):                                              
