@@ -1,6 +1,5 @@
 import torch
 from torch.nn.functional import cross_entropy
-from torchmetrics import Accuracy
 
 from surrogates import Ensemble, WeightedEnsemble, TrainableEnsemble, OracleSurrogate, EMsemble
 
@@ -21,21 +20,6 @@ def accuracy_loss(preds, labels, **kwargs):
 LOSS_FNS = {
     'ce': cross_entropy,
     'acc': accuracy_loss
-}
-
-ACCURACY_FNS = {
-    'domainnet126': {
-        'acc': Accuracy(task="multiclass", num_classes=126, average="micro"),
-        'macro': Accuracy(task="multiclass", num_classes=126, average="macro"), # Musgrave et al use macro average
-    },
-    'wilds': { # TODO!
-        'acc': Accuracy(task="multiclass", num_classes=126, average="micro"),
-        'macro': Accuracy(task="multiclass", num_classes=126, average="macro"), # Musgrave et al use macro average
-    },
-    'modelselector': { # TODO!
-        'acc': Accuracy(task="multiclass", num_classes=126, average="micro"),
-        'macro': Accuracy(task="multiclass", num_classes=126, average="macro"), # Musgrave et al use macro average
-    }
 }
 
 SURROGATES = {

@@ -7,25 +7,15 @@ from coda.baselines.iid import IID
 from surrogates import Ensemble
 
 class ActiveTesting(IID):
-    def __init__(self, dataset, loss_fn, prefilter_fn=None, prefilter_n=500):
-        self.H, self.N, self.C = dataset.pred_logits.shape
-        self.d_l_idxs = []
-        self.d_l_ys = []
-        self.d_u_idxs = list(range(self.N))
-        self.dataset = dataset
-        self.device = dataset.pred_logits.device
-        self.loss_fn = loss_fn
-        self.prefilter_fn = prefilter_fn
-        self.prefilter_n = prefilter_n
-        self.prefilter_h = 50
+    def __init__(self, dataset, loss_fn):
+        super().__init__(dataset, loss_fn)
 
-        self.surrogate = Ensemble(dataset.pred_logits)
+        self.surrogate = Ensemble(dataset.preds)
 
         # Actively sampled points
         self.M = 0  # Number of sampled points
         self.losses = []  # True losses for each model - shape (H, M)
         self.qs = []  # Sampling probabilities for each point - shape (M,)
-
 
     def get_next_item_to_label(self):
         """
@@ -91,7 +81,7 @@ class ActiveTesting(IID):
 
     def add_label(self, chosen_idx, true_class, selection_prob=None):
         super().add_label(chosen_idx, true_class, selection_prob)
-        loss = self.loss_fn(self.dataset.pred_logits[:, chosen_idx, :], torch.tensor([true_class], device=self.device).repeat(self.H), reduction='none')
+        loss = self.loss_fn(self.dataset.preds[:, chosen_idx, :], torch.tensor([true_class], device=self.device).repeat(self.H), reduction='none')
         self.losses.append(loss)
         self.qs.append(selection_prob)
         self.M += 1

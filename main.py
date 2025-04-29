@@ -10,7 +10,7 @@ from torchmetrics import Accuracy
 from coda import CODA
 from coda.baselines import IID, ActiveTesting, VMA, ModelPicker, Uncertainty
 from datasets import Dataset
-from options import LOSS_FNS, ACCURACY_FNS
+from options import LOSS_FNS
 from oracle import Oracle
 
 
