@@ -5,37 +5,8 @@ import torch.nn.functional as F
 from coda.baselines.activetesting import ActiveTesting
 
 class VMA(ActiveTesting):
-    def __init__(self, dataset, loss_fn, prefilter_fn=None, prefilter_n=500):
-        super().__init__(dataset, loss_fn, prefilter_fn=prefilter_fn, prefilter_n=prefilter_n)
-
-    # def get_next_item_to_label(self):
-    #     """
-    #     Return (chosen_idx, selection_probability).
-    #     """
-    #     # Compute the surrogate's probabilities
-    #     pi_y = self.surrogate.get_preds()
-
-    #     # Compute the main models' predicted classes
-    #     pred_probs = F.softmax(self.dataset.pred_logits, dim=2)
-    #     pred_classes = pred_probs.argmax(dim=2)
-
-    #     # Get the surrogate's probability for the predicted classes
-    #     y_star_probs = pi_y[torch.arange(pi_y.shape[0]), pred_classes]
-        
-    #     # Compute the acquisition score
-    #     # acquisition_scores = 1 - y_star_probs # (H, N)
-    #     losses = 1 - y_star_probs[self.d_u_idxs] # (H, |D_U|)
-    #     acquisition_scores = torch.zeros(self.H, len(self.d_u_idxs), device=self.dataset.device)
-    #     for hprime in range(1, self.H):
-    #         for h in range(hprime):
-    #             acquisition_scores[h] += torch.abs(losses[h] - losses[hprime])
-    #     acquisition_scores = acquisition_scores.sum(dim=0)
-    #     acquisition_scores /= acquisition_scores.sum()
-
-    #     chosen_idx = random.choices(self.d_u_idxs, weights=acquisition_scores.cpu().numpy().tolist())[0]
-    #     chosen_q = acquisition_scores[self.d_u_idxs.index(chosen_idx)]
-        
-    #     return chosen_idx, chosen_q
+    def __init__(self, dataset, loss_fn):
+        super().__init__(dataset, loss_fn)
 
     # vectorized
     def get_next_item_to_label(self):
@@ -48,7 +19,7 @@ class VMA(ActiveTesting):
         pi_y = self.surrogate.get_preds()   # e.g. pi_y[i,c] = prob that item i is class c
 
         # 2) Main models' predicted probs => shape (H, N, C)
-        pred_probs = F.softmax(self.dataset.pred_logits, dim=2)
+        pred_probs = self.dataset.preds # F.softmax(self.dataset.pred_logits, dim=2)
         # Argmax => shape (H, N): model h picks its best class for each item
         pred_classes = pred_probs.argmax(dim=2)
 
