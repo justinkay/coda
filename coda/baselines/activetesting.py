@@ -17,6 +17,9 @@ class ActiveTesting(IID):
         self.losses = []  # True losses for each model - shape (H, M)
         self.qs = []  # Sampling probabilities for each point - shape (M,)
 
+        # always stochastic by definition
+        self.stochastic = True
+
     def get_next_item_to_label(self):
         """
         Return (chosen_idx, selection_probability).

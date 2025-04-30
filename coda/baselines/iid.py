@@ -13,11 +13,13 @@ class IID(ModelSelector):
         self.dataset = dataset
         self.device = dataset.preds.device
         self.loss_fn = loss_fn
+        self.stochastic = True # used to see whether we need multiple seeds
 
     def get_next_item_to_label(self):
         """
         Return (chosen_idx, selection_probability).
         """
+        self.stochastic = True
         idx = random.choice(self.d_u_idxs)
         return idx, 1.0 / len(self.d_u_idxs)
 
@@ -53,4 +55,5 @@ class IID(ModelSelector):
         if ties.sum() > 1:
             idxs = torch.nonzero(ties, as_tuple=True)[0]
             best_model_idx_pred = idxs[torch.randperm(len(idxs))[0]]
+            self.stochastic = True
         return best_model_idx_pred

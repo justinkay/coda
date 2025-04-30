@@ -1018,32 +1018,20 @@ class CODA(ModelSelector):
                 update_rule="hard",
                 base_prior="diag",
 
-                # deprecating
-                hypothetical_update_strength=None, #1.0,
-                prior_strength=None, #0.1,
-                base_strength=None, #1.0,
-                update_strength=None, #0.1,
-
                 # new
                 temperature=1.0,
                 alpha=0.9,
                 learning_rate_ratio=0.01
                  ):
         self.dataset = dataset
-        self.device = dataset.pred_logits.device
-        self.H, self.N, self.C = dataset.pred_logits.shape
+        self.device = dataset.preds.device
+        self.H, self.N, self.C = dataset.preds.shape
         self.q = q
         self.prefilter_fn = prefilter_fn
         self.prefilter_n = prefilter_n
         self.epsilon = epsilon
         self.update_rule = update_rule
         self.base_prior = base_prior
-
-        # OLD
-        # self.base_strength = base_strength
-        # self.prior_strength = prior_strength
-        # self.update_strength = update_strength
-        # self.hypothetical_update_strength = hypothetical_update_strength
 
         # NEW
         self.base_strength = alpha / temperature
@@ -1052,10 +1040,10 @@ class CODA(ModelSelector):
         self.hypothetical_update_strength = 1.0 # fix this for sanity
 
         # initialize dirichlets (confusion matrices) and class marginals
-        ensemble_preds = torch.argmax(Ensemble(dataset.pred_logits).get_preds(), dim=-1)
-        pred_classes = torch.argmax(dataset.pred_logits, dim=-1)  # (H, N)
+        ensemble_preds = torch.argmax(Ensemble(dataset.preds).get_preds(), dim=-1)
+        pred_classes = torch.argmax(dataset.preds, dim=-1)  # (H, N)
         if prior_source == "ens" or prior_source == "ens-exp":
-            preds_soft = F.softmax(dataset.pred_logits, dim=-1)
+            preds_soft = dataset.preds # F.softmax(dataset.pred_logits, dim=-1)
             soft_confusion = create_confusion_matrices(true_labels=ensemble_preds, 
                                                        model_predictions=preds_soft, 
                                                        mode='soft')
@@ -1088,7 +1076,7 @@ class CODA(ModelSelector):
 
         self.d_l_idxs = []
         self.d_l_ys = []
-        self.d_u_idxs = list(range(dataset.pred_logits.shape[1]))
+        self.d_u_idxs = list(range(dataset.preds.shape[1]))
         self.qms = []
 
     @classmethod
@@ -1101,10 +1089,6 @@ class CODA(ModelSelector):
                     prefilter_n=args.prefilter_n,
                     epsilon=args.epsilon,
                     update_rule=args.update_rule,
-                    # update_strength=args.update_strength,
-                    # prior_strength=args.prior_strength,
-                    # base_strength=args.base_strength,
-                    # hypothetical_update_strength=args.hypothetical_update_strength,
                     temperature=args.temperature,
                     alpha=args.alpha,
                     learning_rate_ratio=args.learning_rate_ratio,
@@ -1112,7 +1096,7 @@ class CODA(ModelSelector):
                 )
 
     def get_next_item_to_label(self):
-        pred_classes = torch.argmax(self.dataset.pred_logits, dim=-1)
+        pred_classes = torch.argmax(self.dataset.preds, dim=-1)
 
         _d_u_idxs = self.d_u_idxs
         if self.prefilter_fn == 'disagreement':
@@ -1125,11 +1109,13 @@ class CODA(ModelSelector):
         elif self.N > self.prefilter_n and self.prefilter_fn is not None:
             if self.prefilter_fn == 'iid':
                 _d_u_idxs = random.sample(self.d_u_idxs, k=self.prefilter_n)
+                self.stochastic = True
             else:
                 raise NotImplemented
 
         if len(_d_u_idxs) > self.prefilter_n and self.prefilter_n > 0:
             _d_u_idxs = random.sample(_d_u_idxs, k=self.prefilter_n)
+            self.stochastic = True
 
         q = self.q
 
@@ -1143,8 +1129,9 @@ class CODA(ModelSelector):
 
         if q == 'iid':
             _q_values = torch.ones(len(_d_u_idxs), device=self.device) * 1 / len(_d_u_idxs)
+            self.stochastic = True
         elif q =='eig':
-            dataset_tensor = F.softmax(self.dataset.pred_logits.permute(1,0,2), dim=-1)
+            dataset_tensor = self.dataset.preds.permute(1,0,2) #F.softmax(self.dataset.pred_logits.permute(1,0,2), dim=-1)
             _q_values = eig_dirichlet_batched_soft(
                                 self.dirichlets, 
                                 dataset_tensor,
@@ -1155,7 +1142,7 @@ class CODA(ModelSelector):
                                 update_weight=self.hypothetical_update_strength
             )
         elif q == 'weighted_l1':
-            dataset_tensor = F.softmax(self.dataset.pred_logits.permute(1,0,2), dim=-1)
+            dataset_tensor = self.dataset.preds.permute(1,0,2) #F.softmax(self.dataset.pred_logits.permute(1,0,2), dim=-1)
             _q_values = l1_dirichlet_batched(
                                 self.dirichlets, 
                                 dataset_tensor,
@@ -1167,7 +1154,7 @@ class CODA(ModelSelector):
                                 weighted=True
             )
         elif q == 'uncertainty':
-            pred_probs = F.softmax(self.dataset.pred_logits, dim=2)
+            pred_probs = self.dataset.preds # F.softmax(self.dataset.pred_logits, dim=2)
             mean_pred_probs = pred_probs.mean(dim=0)
             epsilon = 1e-8
             entropy_per_data_point = -torch.sum(mean_pred_probs * torch.log(mean_pred_probs + epsilon), dim=-1)
@@ -1185,6 +1172,7 @@ class CODA(ModelSelector):
             print(ties.sum(), "ties at Q=", chosen_q_val, "; randomly selecting one of these")
             idxs = torch.nonzero(ties, as_tuple=True)[0]
             chosen_local_idx = idxs[torch.randperm(len(idxs))[0]]
+            self.stochastic = True
         # chosen_idx = self.d_u_idxs[chosen_local_idx.item()]
         chosen_idx = _d_u_idxs[chosen_local_idx.item()]
         chosen_q = chosen_q_val
@@ -1194,7 +1182,7 @@ class CODA(ModelSelector):
     
     def add_label(self, chosen_idx, true_class, selection_prob):
         true_class = int(true_class) # just in case; e.g. GLUE preds break this
-        preds_soft = F.softmax(self.dataset.pred_logits, dim=-1)
+        preds_soft = self.dataset.preds # F.softmax(self.dataset.pred_logits, dim=-1)
         preds_on_item = preds_soft[:, chosen_idx, :]
         if self.update_rule == "hard":
             preds_on_item = F.one_hot(torch.argmax(preds_on_item, dim=-1), num_classes=self.C).float()

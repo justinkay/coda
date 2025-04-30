@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 
-def simple_expected_error(surrogate_preds, pred_logits):
+def simple_expected_error(surrogate_preds, preds):
     """
     Args:
         surrogate_preds: (N, C) post-softmax
@@ -12,9 +12,9 @@ def simple_expected_error(surrogate_preds, pred_logits):
 
     Return shape: (H,N)
     """
-    H, N, C = pred_logits.shape
+    H, N, C = preds.shape
 
-    pred_probs = torch.softmax(pred_logits, dim=-1)
+    pred_probs = preds # torch.softmax(pred_logits, dim=-1)
     pred_classes = pred_probs.argmax(dim=-1)
 
     y_star_probs = surrogate_preds[torch.arange(surrogate_preds.shape[0]), pred_classes]
@@ -22,7 +22,7 @@ def simple_expected_error(surrogate_preds, pred_logits):
 
     return exp_accuracy_loss
 
-def simple_error(surrogate_preds, pred_logits):
+def simple_error(surrogate_preds, preds):
     """
     Args:
         surrogate_preds: (N, C) post-softmax
@@ -33,9 +33,9 @@ def simple_error(surrogate_preds, pred_logits):
 
     Return shape: (H,)
     """
-    H, N, C = pred_logits.shape
+    H, N, C = preds.shape
     ensemble_pred_classes = surrogate_preds.argmax(dim=-1)
-    model_pred_classes = pred_logits.argmax(dim=-1)
+    model_pred_classes = preds.argmax(dim=-1)
     accs = (model_pred_classes == ensemble_pred_classes).float().mean(dim=-1)
     return 1 - accs
 

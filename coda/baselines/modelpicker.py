@@ -69,19 +69,19 @@ class ModelPicker(ModelSelector):
            - dataset.oracle (if you store ground-truth somewhere)
         """
         self.dataset = dataset
-        self.device = dataset.pred_logits.device
-        self.H, self.N, self.C = dataset.pred_logits.shape
+        self.device = dataset.preds.device
+        self.H, self.N, self.C = dataset.preds.shape
 
         self.epsilon = epsilon
         self.gamma = (1.0 - self.epsilon) / self.epsilon
 
-        ensemble = Ensemble(dataset.pred_logits)
+        ensemble = Ensemble(dataset.preds)
         ensemble_preds = ensemble.get_preds() # (N, C)
         if prior_source == "ens-exp":
-            pred_losses = metrics.simple_expected_error(ensemble_preds, dataset.pred_logits).mean(dim=-1)
+            pred_losses = metrics.simple_expected_error(ensemble_preds, dataset.preds).mean(dim=-1)
             self.posterior = 1 - pred_losses
         elif prior_source == "ens-01":
-            pred_losses = metrics.simple_error(ensemble_preds, dataset.pred_logits)
+            pred_losses = metrics.simple_error(ensemble_preds, dataset.preds)
             self.posterior = 1 - pred_losses
         else:
             self.posterior = torch.ones(self.H, dtype=torch.float) / float(self.H)  # uniform init
@@ -101,7 +101,10 @@ class ModelPicker(ModelSelector):
         # labeled and unlabeled points
         self.d_l_idxs = []
         self.d_l_ys = []
-        self.d_u_idxs = list(range(dataset.pred_logits.shape[1]))
+        self.d_u_idxs = list(range(dataset.preds.shape[1]))
+
+        # because we start with a uniform prior, runs always start with a random choice
+        self.stochastic = True
 
     def get_next_item_to_label(self):
         """
@@ -120,7 +123,7 @@ class ModelPicker(ModelSelector):
         #   predictions = pred_probs.argmax(dim=2).transpose(0,1)   # => (N,H)
         # if you already have dataset.predictions => (N,H), just use that directly
         # shape (H,N,C)
-        pred_probs = F.softmax(self.dataset.pred_logits, dim=2)
+        pred_probs = self.dataset.preds # F.softmax(self.dataset.pred_logits, dim=2)
         # shape (H,N)
         pred_classes_hn = pred_probs.argmax(dim=2)
         # shape (N,H)
@@ -171,9 +174,9 @@ class ModelPicker(ModelSelector):
 
         # 1) gather predictions => shape(H,) for chosen_idx
         device = self.dataset.device
-        if hasattr(self.dataset, "pred_logits"):
+        if hasattr(self.dataset, "preds"):
             # same logic as above to get discrete predictions
-            pred_probs = F.softmax(self.dataset.pred_logits[:, chosen_idx, :], dim=1)
+            pred_probs = self.dataset.preds[:, chosen_idx, :] #F.softmax(self.dataset.pred_logits[:, chosen_idx, :], dim=1)
             # shape(H,C). Then argmax => shape(H,)
             pred_classes_h = pred_probs.argmax(dim=1)
         else:
@@ -266,6 +269,6 @@ class ModelPicker(ModelSelector):
     
     def get_bma_preds(self):
         prob_best = self.posterior
-        ensemble = WeightedEnsemble(self.dataset.pred_logits)
+        ensemble = WeightedEnsemble(self.dataset.preds)
         preds = ensemble.get_preds(weights=prob_best)
         return preds

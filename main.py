@@ -39,23 +39,20 @@ def parse_args():
     # method settings
     parser.add_argument("--loss", help="{ 'ce', 'acc', ... }", default="acc",)
     parser.add_argument("--method", help="{ 'iid', 'beta', 'activetesting', 'vma' }", default='iid')
-    parser.add_argument("--prior-strength", type=float, default=10.0, help="Strength of beta distribution initial alpha/beta")
     parser.add_argument("--q", default="eig", help="{ 'iid', 'eig', 'l1', 'weighted_l1', 'max_regret', 'reduce_regret_local', 'reduce_regret_global' }")
-    parser.add_argument("--select", default="sample", help="{ 'sample', 'means' }")
-    parser.add_argument("--stochastic", action='store_true', help="Randomly select from q if True; greedy if False")
-    parser.add_argument("--importance-weighting", action='store_true', help="Use importance weighting for posterior updates (only applicable if stochastic=True)")
     parser.add_argument("--prefilter-fn", default='disagreement', help="{ None, 'disagreement', 'iid' }")
     parser.add_argument("--prefilter-n", type=int, default=0)
     parser.add_argument("--epsilon", type=float, default=0.0)
     parser.add_argument("--prior-source", default="ens-exp", help="{ 'ens-exp', 'ens-01', 'ds', 'ens-soft-01' }")
     parser.add_argument("--item-priors", default='ens', help="{ 'none', 'ens', bma-adaptive' }")
-    parser.add_argument("--update-rule", default="hard", help="Hard or soft dirichlet confusion matrix updates")
+    
     
     # CODA settings
     parser.add_argument("--base-prior", default="diag")
     parser.add_argument("--temperature", default=1.0, type=float)
     parser.add_argument("--alpha", default=0.9, type=float)
     parser.add_argument("--learning-rate-ratio", default=0.01, type=float)
+    parser.add_argument("--update-rule", default="hard", help="Hard or soft dirichlet confusion matrix updates")
 
     return parser.parse_args()
 
@@ -86,6 +83,8 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
                                epsilon=epsilon,
                                prior_source=args.prior_source,
                                item_prior_source=args.item_priors)
+    else:
+        raise ValueError(args.method + " is not a supported method.")
 
     ## Active model selection loop
     cumulative_regret_loss = 0
@@ -102,6 +101,8 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
         print("Regret at", m, ":", regret_loss)
         mlflow.log_metric("regret", regret_loss.item(), step=m+1)
         mlflow.log_metric("cumulative regret", cumulative_regret_loss.item(), step=m+1)
+
+    return selector.stochastic
 
 def main():
     args = parse_args()
@@ -125,27 +126,35 @@ def main():
     def get_mlflow_run_id(run_name):
         run_id = None
         matching_runs = mlflow.search_runs(experiment_names=['sketch_painting'], filter_string=f"tags.mlflow.runName = '{run_name}'", max_results=1)
+        finished = False
+        stochastic = None
         if len(matching_runs): 
             run_id = matching_runs.run_id.values[0]
-            # TODO: status = matching_runs.status.values[0]; check for 'FINISHED'
-        return run_id
+            finished = matching_runs.status.values[0] == 'FINISHED'
+            stochastic = 'params.stochastic' in matching_runs.columns and matching_runs['params.stochastic'].values[0] == 'True'
+        return run_id, finished, stochastic
 
     # create mlflow 'run' (= algorithm)
-    # check for existing and overwrite
-    # TODO: Could give option to not overwrite
     run_name = "-".join([experiment_name, args.method])
-    run_id = get_mlflow_run_id(run_name)
+    run_id, _, _ = get_mlflow_run_id(run_name)
     with mlflow.start_run(run_id=run_id, run_name=run_name):                                              
         mlflow.log_params(args.__dict__)
         for seed in range(args.seeds):
             # create nested ml flow 'run' (= seed)
             seed_run_name = "-".join([experiment_name, args.method, str(seed)])
-            seed_run_id = get_mlflow_run_id(seed_run_name)
-            with mlflow.start_run(nested=True, run_id=seed_run_id, run_name=seed_run_name):                                         
-                mlflow.log_param("seed", seed)
-                print("Running active model selection with seed", seed)
-                print("DEBUG ARGS", args.__dict__)
-                do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=seed)
+            seed_run_id, seed_finished, seed_stochastic = get_mlflow_run_id(seed_run_name)
+            if seed_finished:
+                print("Seed", seed, "finished. Skipping.")
+            else:
+                with mlflow.start_run(nested=True, run_id=seed_run_id, run_name=seed_run_name):                                         
+                    mlflow.log_param("seed", seed)
+                    print("Running active model selection with seed", seed)
+                    print("DEBUG ARGS", args.__dict__)
+                    seed_stochastic = do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=seed)
+                    mlflow.log_param("stochastic", seed_stochastic)
+            if not seed_stochastic:
+                print("Method is not stochastic for this task. Skipping further seeds.")
+                break
 
 if __name__ == "__main__":
     main()
