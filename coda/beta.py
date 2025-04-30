@@ -4,7 +4,7 @@ from tqdm import tqdm
 import random
 
 import metrics
-from surrogates import Ensemble, WeightedEnsemble, DawidSkeneModel
+from surrogates import Ensemble, WeightedEnsemble
 from coda.base import ModelSelector
 
 
@@ -1372,11 +1372,11 @@ class BB(ModelSelector):
             self.pred_losses = metrics.simple_error(one_hot_preds, dataset.pred_logits)
         elif prior_source == "ens-soft-01":
             self.pred_losses = metrics.simple_error(ensemble_preds, dataset.pred_logits)
-        elif prior_source == "ds":
-            dataset_tensor = torch.nn.functional.softmax(dataset.pred_logits.permute(1,0,2), dim=-1)
-            model = DawidSkeneModel(self.C, max_iter=100, tolerance=1e-10)
-            _, _, worker_reliability, _ = model.run(dataset_tensor)
-            self.pred_losses = 1 - worker_reliability
+        # elif prior_source == "ds":
+        #     dataset_tensor = torch.nn.functional.softmax(dataset.pred_logits.permute(1,0,2), dim=-1)
+        #     model = DawidSkeneModel(self.C, max_iter=100, tolerance=1e-10)
+        #     _, _, worker_reliability, _ = model.run(dataset_tensor)
+        #     self.pred_losses = 1 - worker_reliability
 
         accuracy_priors = 1 - self.pred_losses
         self.alpha = 1 + accuracy_priors * prior_strength

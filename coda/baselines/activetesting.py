@@ -2,9 +2,9 @@ import random
 import torch
 import torch.nn.functional as F
 
-from coda.base import ModelSelector
 from coda.baselines.iid import IID
 from surrogates import Ensemble
+
 
 class ActiveTesting(IID):
     def __init__(self, dataset, loss_fn):
@@ -25,7 +25,7 @@ class ActiveTesting(IID):
         pi_y = self.surrogate.get_preds()
 
         # Compute the main models' predicted classes
-        pred_probs = F.softmax(self.dataset.pred_logits, dim=2)
+        pred_probs = self.dataset.preds
         pred_classes = pred_probs.argmax(dim=2)
 
         # Get the surrogate's probability for the predicted classes

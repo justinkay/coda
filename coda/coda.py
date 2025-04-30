@@ -4,10 +4,9 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import random
 
-import metrics
-from surrogates import Ensemble, WeightedEnsemble, DawidSkeneModel
 from coda.base import ModelSelector
 from coda.beta import distribution_entropy, sample_is_best_worker_beta_batched
+from surrogates import Ensemble
 
 
 def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):

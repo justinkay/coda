@@ -1,7 +1,7 @@
 import torch
 from torch.nn.functional import cross_entropy
 
-from surrogates import Ensemble, WeightedEnsemble, TrainableEnsemble, OracleSurrogate, EMsemble
+from surrogates import Ensemble, OracleSurrogate
 
 
 def accuracy_loss(preds, labels, **kwargs):
@@ -18,14 +18,11 @@ def accuracy_loss(preds, labels, **kwargs):
     return 1 - accs
 
 LOSS_FNS = {
-    'ce': cross_entropy,
+    # 'ce': cross_entropy, # TODO this won't work out of the box; we don't have logits
     'acc': accuracy_loss
 }
 
 SURROGATES = {
     'naive': Ensemble,
-    'weighted': WeightedEnsemble,
-    'trainable': TrainableEnsemble,
     'oracle': OracleSurrogate, 
-    'emsemble': EMsemble
 }

@@ -2,20 +2,20 @@ import torch
 import torch.nn.functional as F
 
 
-def losses(surrogate, pred_logits, loss_fn):
+def losses(surrogate, preds, loss_fn):
     """
     Get losses of some other predictions (pred_logits) compared to this surrogate.
     Could probably remove the batching.
     """
-    H, N, C = pred_logits.shape
+    H, N, C = preds.shape
     surrogate_probs = surrogate.get_preds() # Shape: (N, C)
     surrogate_labels = torch.argmax(surrogate_probs, dim=-1)  # Shape: (N,)
 
     batch_size = 1000
-    losses = torch.zeros(H, N, device=pred_logits.device)
+    losses = torch.zeros(H, N, device=preds.device)
     for i in range(0, N, batch_size):
         batch_end = min(i + batch_size, N)
-        batch_preds = pred_logits[:, i:batch_end, :]  # Shape: (H, batch_size, C)
+        batch_preds = preds[:, i:batch_end, :]  # Shape: (H, batch_size, C)
         batch_preds = batch_preds.reshape(-1, C)  # Shape: (H * batch_size, C)
         batch_surrogate_labels = surrogate_labels[i:batch_end].repeat(H)  # Shape: (H * batch_size,)
 
@@ -28,16 +28,14 @@ def losses(surrogate, pred_logits, loss_fn):
 
     return losses
 
-def expected_error(surrogate, pred_logits):
+def expected_error(surrogate, preds):
     """
     Get expected error (``accuracy losses'') of some other predictions (pred_logits) compared to this surrogate.
     """
-    H, N, C = pred_logits.shape
+    H, N, C = preds.shape
     pi_y = surrogate.get_preds() # Shape: (N, C)
 
-    pred_probs = torch.softmax(pred_logits, dim=-1)
-    pred_classes = pred_probs.argmax(dim=-1)
-
+    pred_classes = preds.argmax(dim=-1)
     y_star_probs = pi_y[torch.arange(pi_y.shape[0]), pred_classes]
     exp_accuracy_loss = 1 - y_star_probs
 
@@ -46,12 +44,12 @@ def expected_error(surrogate, pred_logits):
 
 class Ensemble:
     def __init__(self, preds, **kwargs):
-        self.pred_logits = preds
+        self.preds = preds
         self.device = preds.device
         H, N, C = preds.shape
 
     def get_preds(self, **kwargs):
-        return self.preds
+        return self.preds.mean(dim=0)
 
 
 class WeightedEnsemble(Ensemble):

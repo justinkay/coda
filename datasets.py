@@ -4,7 +4,7 @@ import os
 class Dataset:
     def __init__(self, filepath, device):
         self.device = device
-        self.preds = torch.load(filepath, map_location=device)
+        self.preds = torch.load(filepath, map_location=device).float() # avoid fp16 precision errors
         print("Loaded preds of shape", self.preds.shape)
 
         self.labels = None
