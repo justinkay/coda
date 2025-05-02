@@ -5,9 +5,17 @@ from tqdm import tqdm
 import random
 
 from coda.base import ModelSelector
-from coda.beta import distribution_entropy, sample_is_best_worker_beta_batched
 from surrogates import Ensemble
 
+
+def distribution_entropy(prob: torch.Tensor, eps=1e-12) -> torch.Tensor:
+    """
+    Compute entropy of a discrete probability distribution 'prob' shape (K,).
+    H(p) = - sum_k p_k * log(p_k).
+    Returns a 0D tensor (scalar).
+    """
+    prob_clamped = prob.clamp(min=eps)
+    return - (prob_clamped * prob_clamped.log2()).sum()
 
 def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
     """
@@ -619,6 +627,160 @@ def sample_is_best_worker_mixture_batched(
     return prob_best_out
 
 
+def sample_is_best_worker_beta_batched(
+    alpha_batch: torch.Tensor,   # shape (C,K) or (N,C,K)
+    beta_batch:  torch.Tensor,   # same shape
+    num_points:  int = 128,
+    eps: float   = 1e-30,
+    chunk_size:  int = None
+) -> torch.Tensor:
+    """
+    Computes P(worker k is 'best') for each item & each class,
+    via numeric integration of Beta PDFs on a grid of size `num_points`.
+
+    - If alpha_batch,beta_batch have shape (C,K), returns shape (C,K)
+      (i.e. a single item with C possible classes).
+    - If alpha_batch,beta_batch have shape (N,C,K), returns shape (N,C,K).
+
+    Arguments:
+      alpha_batch: (C,K) or (N,C,K)
+      beta_batch:  same shape
+      num_points:  number of trapezoid steps in [0,1]
+      eps:         clamp to avoid log(0)
+      chunk_size:  process items in chunks if N is large
+
+    Returns:
+      prob_best_out:
+        - shape (C,K) if input was (C,K)
+        - shape (N,C,K) if input was (N,C,K)
+    """
+    device = alpha_batch.device
+
+    # 1) If we only have (C,K), treat it as a single item => (1,C,K)
+    if alpha_batch.ndim == 2:
+        alpha_batch = alpha_batch.unsqueeze(0)  # => (1,C,K)
+        beta_batch  = beta_batch.unsqueeze(0)   # => (1,C,K)
+        single_item = True
+    else:
+        single_item = False
+
+    N, C, K = alpha_batch.shape
+
+    if chunk_size is None:
+        chunk_size = N  # no chunking if not specified
+
+    # We'll integrate over x in [0,1].
+    # Reshape x to (num_points, 1) for proper broadcasting with batch dimensions
+    grid_eps = 1e-6
+    x = torch.linspace(grid_eps, 1.0-grid_eps, steps=num_points, device=device).unsqueeze(-1)  # shape (num_points, 1)
+
+    # Prepare the output: (N,C,K)
+    prob_best_out = torch.zeros(N, C, K, device=device)
+
+    start = 0
+    while start < N:
+        end = min(start + chunk_size, N)
+        batch_size = end - start
+
+        # shape (batch_size,C,K)
+        alpha_ch = alpha_batch[start:end]
+        beta_ch  = beta_batch[start:end]
+
+        # Flatten => shape (batch_size*C, K)
+        alpha_flat = alpha_ch.reshape(-1, K)
+        beta_flat  = beta_ch.reshape(-1, K)
+
+        # We have (batch_size*C) "items" x K workers => total Beta distributions = (batch_size*C*K).
+        # But we want a Beta distribution per row & worker. Easiest approach:
+        #    alpha_full => shape (batch_size*C*K,)
+        alpha_full = alpha_flat.reshape(-1)
+        beta_full  = beta_flat.reshape(-1)
+
+        # Make a Beta distribution with batch_shape=(batch_size*C*K,).
+        dist_full = Beta(alpha_full, beta_full)
+
+        # Evaluate log_prob at each x => shape (num_points, batch_size*C*K)
+        logpdf_full = dist_full.log_prob(x)  # shape (num_points, batch_size*C*K)
+
+        # print("logpdf_full", torch.any(torch.isnan(logpdf_full).logical_or( torch.isinf(logpdf_full) )))
+
+        # We want shape (batch_size*C*K, num_points), so we transpose:
+        logpdf_full = logpdf_full.transpose(0, 1)  # => (batch_size*C*K, num_points)
+        pdf_full = logpdf_full.exp()               # => (batch_size*C*K, num_points)
+
+        # print("pdf_full", torch.any(torch.isnan(pdf_full).logical_or( torch.isinf(pdf_full) )))
+
+
+        # Reshape => (batch_size*C, K, num_points)
+        pdf_vals = pdf_full.reshape(batch_size*C, K, num_points)
+
+        # 2) Trapezoid integration to get each worker's CDF
+        cdf_vals = torch.zeros_like(pdf_vals)  # (batch_size*C, K, num_points)
+        for j in range(1, num_points):
+            dx = x[j] - x[j-1]
+            trap = 0.5*(pdf_vals[:,:,j] + pdf_vals[:,:,j-1]) * dx
+            cdf_vals[:,:,j] = cdf_vals[:,:,j-1] + trap
+
+        # print("cdf_vals", torch.any(torch.isnan(cdf_vals).logical_or( torch.isinf(cdf_vals) )))
+
+        cdf_clamped = cdf_vals.clamp_min(eps)
+        log_cdfs = torch.log(cdf_clamped)  # => (batch_size*C, K, num_points)
+
+        # print("log_cdfs", torch.any(torch.isnan(log_cdfs).logical_or( torch.isinf(log_cdfs) )))
+
+        # sum over K => shape (batch_size*C, num_points)
+        sum_log_cdfs = log_cdfs.sum(dim=1)
+
+        # print("sum_log_cdfs", torch.any(torch.isnan(sum_log_cdfs).logical_or( torch.isinf(sum_log_cdfs) )))
+
+        # Probability that worker k is best:
+        # integrand_k(x) = pdf_k(x) * prod_{j!=k} cdf_j(x)
+        # => log_exclusive_k(x) = sum_log_cdfs(x) - log_cdfs[k](x)
+        log_exclusive = sum_log_cdfs.unsqueeze(1) - log_cdfs  # => (batch_size*C, K, num_points)
+
+        # print('log exclusive max', log_exclusive.max())
+        max_exponent = 30.0
+        log_exclusive = log_exclusive.clamp_max(max_exponent)
+
+        product_exclusive = torch.exp(log_exclusive)
+
+        # print("log_exclusive", torch.any(torch.isnan(log_exclusive).logical_or( torch.isinf(log_exclusive) )))
+        # print("product_exclusive", torch.any(torch.isnan(product_exclusive).logical_or( torch.isinf(product_exclusive) )))
+
+        integrand = pdf_vals * product_exclusive  # => (batch_size*C, K, num_points)
+
+        # print("integrand", torch.any(torch.isnan(integrand).logical_or( torch.isinf(integrand) )))
+
+        # integrate wrt x => shape (batch_size*C, K)
+        prob_best_flat = torch.trapz(integrand, x.squeeze(), dim=2)  # x.squeeze() to match original shape (num_points,)
+
+        # print("prob_best_flat", torch.any(torch.isnan(prob_best_flat)))
+
+        # reshape => (batch_size, C, K)
+        prob_best_chunk = prob_best_flat.reshape(batch_size, C, K)
+
+        # print("prob_best_chunk1 ", torch.any(torch.isnan(prob_best_chunk)))
+        # print(prob_best_chunk)
+
+        # normalize
+        prob_best_chunk = prob_best_chunk / prob_best_chunk.sum(dim=-1, keepdim=True).clamp_min(eps)
+
+
+        # print("prob_best_chunk bottom", torch.any(torch.isnan(prob_best_chunk.sum(dim=-1, keepdim=True).clamp_min(eps))))
+        # print("prob_best_chunk2 ", torch.any(torch.isnan(prob_best_chunk)))
+
+        # Store
+        prob_best_out[start:end] = prob_best_chunk
+
+        start = end
+
+    # If single_item => shape (C,K)
+    if single_item:
+        return prob_best_out[0]
+
+    return prob_best_out
+
+
 def eig_dirichlet_batched_soft(
     dirichlet_alphas: torch.Tensor,
     worker_probs: torch.Tensor,
@@ -1078,6 +1240,7 @@ class CODA(ModelSelector):
         self.d_l_ys = []
         self.d_u_idxs = list(range(dataset.preds.shape[1]))
         self.qms = []
+        self.stochastic = False
 
     @classmethod
     def from_args(cls, dataset, args):
