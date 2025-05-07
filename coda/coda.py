@@ -35,8 +35,8 @@ def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
     beta_cc = alpha_dirichlet.sum(dim=2) - alpha_cc  # Sum over k≠c: (H, C)
     return alpha_cc, beta_cc
 
-def compute_p_best_dir_beta_mom(
-    alpha: torch.Tensor,  # shape (H, C)
+def compute_p_best_mom(
+    alpha: torch.Tensor,   # shape (H, C)
     beta: torch.Tensor,    # shape (H, C)
     marginal_distribution: torch.Tensor,  # shape (C,)
     num_points=128
@@ -78,15 +78,10 @@ def compute_p_best_dir_beta_mom(
     alpha_prime = torch.clamp(alpha_prime, min=epsilon)
     beta_prime = torch.clamp(beta_prime, min=epsilon)
 
-    # Use existing grid-based integration with approximated Beta parameters
-    return compute_p_best_betas(alpha_prime, beta_prime, num_points)
-
-def compute_p_best_betas(alpha: torch.Tensor, beta: torch.Tensor, num_points=128) -> torch.Tensor:
-    device = alpha.device
-
+    # now compute integral
     eps = 1e-6
-    x = torch.linspace(eps, 1.0-eps, num_points, device=device)
-    dist_betas = torch.distributions.Beta(alpha, beta)
+    x = torch.linspace(eps, 1.0-eps, num_points, device=alpha_prime.device)
+    dist_betas = torch.distributions.Beta(alpha_prime, beta_prime)
     pdf_vals = torch.exp(dist_betas.log_prob(x.unsqueeze(1))).transpose(0, 1)
 
     # Trapezoidal integration for CDF
@@ -121,7 +116,7 @@ def compute_p_best_dirichlet(
     alpha_beta, beta_beta = dirichlet_to_beta(alpha_dirichlet)
     
     # Use the previously defined class-conditional method
-    return compute_p_best_dir_beta_mom(
+    return compute_p_best_mom(
         alpha_beta, 
         beta_beta,
         marginal_distribution,
@@ -161,7 +156,7 @@ def create_confusion_matrices(true_labels: torch.Tensor,
 
     return confusion_normalized
 
-def initialize_dirichlets_with_prior(soft_confusion: torch.Tensor, prior_strength: float, 
+def initialize_dirichlets(soft_confusion: torch.Tensor, prior_strength: float, 
                                     base_strength=1.0, base_prior="diag", upweight_binary=False) -> torch.Tensor:
     """
     Initialize Dirichlet parameters for each model's confusion matrix.
@@ -271,22 +266,22 @@ def batch_update_dirichlet_for_item(
     return updated
 
 def compute_p_best_beta_batched(
-    alpha_batch: torch.Tensor,   # shape (C,K) or (N,C,K)
+    alpha_batch: torch.Tensor,   # shape (C,K) or (N,C,H)
     beta_batch:  torch.Tensor,   # same shape
     num_points:  int = 128,
     eps: float   = 1e-30,
     chunk_size:  int = None
 ) -> torch.Tensor:
     """
-    Computes P(worker k is 'best') for each item & each class,
+    Computes P(worker h is 'best') for each item & each class,
     via numeric integration of Beta PDFs on a grid of size `num_points`.
 
-    - If alpha_batch,beta_batch have shape (C,K), returns shape (C,K)
+    - If alpha_batch,beta_batch have shape (C,H), returns shape (C,H)
       (i.e. a single item with C possible classes).
-    - If alpha_batch,beta_batch have shape (N,C,K), returns shape (N,C,K).
+    - If alpha_batch,beta_batch have shape (N,C,H), returns shape (N,C,H).
 
     Arguments:
-      alpha_batch: (C,K) or (N,C,K)
+      alpha_batch: (C,H) or (N,C,H)
       beta_batch:  same shape
       num_points:  number of trapezoid steps in [0,1]
       eps:         clamp to avoid log(0)
@@ -294,20 +289,20 @@ def compute_p_best_beta_batched(
 
     Returns:
       prob_best_out:
-        - shape (C,K) if input was (C,K)
-        - shape (N,C,K) if input was (N,C,K)
+        - shape (C,H) if input was (C,H)
+        - shape (N,C,H) if input was (N,C,H)
     """
     device = alpha_batch.device
 
-    # 1) If we only have (C,K), treat it as a single item => (1,C,K)
+    # 1) If we only have (C,H), treat it as a single item => (1,C,H)
     if alpha_batch.ndim == 2:
-        alpha_batch = alpha_batch.unsqueeze(0)  # => (1,C,K)
-        beta_batch  = beta_batch.unsqueeze(0)   # => (1,C,K)
+        alpha_batch = alpha_batch.unsqueeze(0)  # => (1,C,H)
+        beta_batch  = beta_batch.unsqueeze(0)   # => (1,C,H)
         single_item = True
     else:
         single_item = False
 
-    N, C, K = alpha_batch.shape
+    N, C, H = alpha_batch.shape
 
     if chunk_size is None:
         chunk_size = N  # no chunking if not specified
@@ -317,48 +312,48 @@ def compute_p_best_beta_batched(
     grid_eps = 1e-6
     x = torch.linspace(grid_eps, 1.0-grid_eps, steps=num_points, device=device).unsqueeze(-1)  # shape (num_points, 1)
 
-    # Prepare the output: (N,C,K)
-    prob_best_out = torch.zeros(N, C, K, device=device)
+    # Prepare the output: (N,C,H)
+    prob_best_out = torch.zeros(N, C, H, device=device)
 
     start = 0
     while start < N:
         end = min(start + chunk_size, N)
         batch_size = end - start
 
-        # shape (batch_size,C,K)
+        # shape (batch_size,C,H)
         alpha_ch = alpha_batch[start:end]
         beta_ch  = beta_batch[start:end]
 
-        # Flatten => shape (batch_size*C, K)
-        alpha_flat = alpha_ch.reshape(-1, K)
-        beta_flat  = beta_ch.reshape(-1, K)
+        # Flatten => shape (batch_size*C, H)
+        alpha_flat = alpha_ch.reshape(-1, H)
+        beta_flat  = beta_ch.reshape(-1, H)
 
-        # We have (batch_size*C) "items" x K workers => total Beta distributions = (batch_size*C*K).
+        # We have (batch_size*C) "items" x H workers => total Beta distributions = (batch_size*C*H).
         # But we want a Beta distribution per row & worker. Easiest approach:
-        #    alpha_full => shape (batch_size*C*K,)
+        #    alpha_full => shape (batch_size*C*H,)
         alpha_full = alpha_flat.reshape(-1)
         beta_full  = beta_flat.reshape(-1)
 
-        # Make a Beta distribution with batch_shape=(batch_size*C*K,).
+        # Make a Beta distribution with batch_shape=(batch_size*C*H,).
         dist_full = Beta(alpha_full, beta_full)
 
-        # Evaluate log_prob at each x => shape (num_points, batch_size*C*K)
-        logpdf_full = dist_full.log_prob(x)  # shape (num_points, batch_size*C*K)
+        # Evaluate log_prob at each x => shape (num_points, batch_size*C*H)
+        logpdf_full = dist_full.log_prob(x)  # shape (num_points, batch_size*C*H)
 
         # print("logpdf_full", torch.any(torch.isnan(logpdf_full).logical_or( torch.isinf(logpdf_full) )))
 
-        # We want shape (batch_size*C*K, num_points), so we transpose:
-        logpdf_full = logpdf_full.transpose(0, 1)  # => (batch_size*C*K, num_points)
-        pdf_full = logpdf_full.exp()               # => (batch_size*C*K, num_points)
+        # We want shape (batch_size*C*H, num_points), so we transpose:
+        logpdf_full = logpdf_full.transpose(0, 1)  # => (batch_size*C*H, num_points)
+        pdf_full = logpdf_full.exp()               # => (batch_size*C*H, num_points)
 
         # print("pdf_full", torch.any(torch.isnan(pdf_full).logical_or( torch.isinf(pdf_full) )))
 
 
-        # Reshape => (batch_size*C, K, num_points)
-        pdf_vals = pdf_full.reshape(batch_size*C, K, num_points)
+        # Reshape => (batch_size*C, H, num_points)
+        pdf_vals = pdf_full.reshape(batch_size*C, H, num_points)
 
         # 2) Trapezoid integration to get each worker's CDF
-        cdf_vals = torch.zeros_like(pdf_vals)  # (batch_size*C, K, num_points)
+        cdf_vals = torch.zeros_like(pdf_vals)  # (batch_size*C, H, num_points)
         for j in range(1, num_points):
             dx = x[j] - x[j-1]
             trap = 0.5*(pdf_vals[:,:,j] + pdf_vals[:,:,j-1]) * dx
@@ -367,11 +362,11 @@ def compute_p_best_beta_batched(
         # print("cdf_vals", torch.any(torch.isnan(cdf_vals).logical_or( torch.isinf(cdf_vals) )))
 
         cdf_clamped = cdf_vals.clamp_min(eps)
-        log_cdfs = torch.log(cdf_clamped)  # => (batch_size*C, K, num_points)
+        log_cdfs = torch.log(cdf_clamped)  # => (batch_size*C, H, num_points)
 
         # print("log_cdfs", torch.any(torch.isnan(log_cdfs).logical_or( torch.isinf(log_cdfs) )))
 
-        # sum over K => shape (batch_size*C, num_points)
+        # sum over H => shape (batch_size*C, num_points)
         sum_log_cdfs = log_cdfs.sum(dim=1)
 
         # print("sum_log_cdfs", torch.any(torch.isnan(sum_log_cdfs).logical_or( torch.isinf(sum_log_cdfs) )))
@@ -379,7 +374,7 @@ def compute_p_best_beta_batched(
         # Probability that worker k is best:
         # integrand_k(x) = pdf_k(x) * prod_{j!=k} cdf_j(x)
         # => log_exclusive_k(x) = sum_log_cdfs(x) - log_cdfs[k](x)
-        log_exclusive = sum_log_cdfs.unsqueeze(1) - log_cdfs  # => (batch_size*C, K, num_points)
+        log_exclusive = sum_log_cdfs.unsqueeze(1) - log_cdfs  # => (batch_size*C, H, num_points)
 
         # print('log exclusive max', log_exclusive.max())
         max_exponent = 30.0
@@ -390,24 +385,23 @@ def compute_p_best_beta_batched(
         # print("log_exclusive", torch.any(torch.isnan(log_exclusive).logical_or( torch.isinf(log_exclusive) )))
         # print("product_exclusive", torch.any(torch.isnan(product_exclusive).logical_or( torch.isinf(product_exclusive) )))
 
-        integrand = pdf_vals * product_exclusive  # => (batch_size*C, K, num_points)
+        integrand = pdf_vals * product_exclusive  # => (batch_size*C, H, num_points)
 
         # print("integrand", torch.any(torch.isnan(integrand).logical_or( torch.isinf(integrand) )))
 
-        # integrate wrt x => shape (batch_size*C, K)
+        # integrate wrt x => shape (batch_size*C, H)
         prob_best_flat = torch.trapz(integrand, x.squeeze(), dim=2)  # x.squeeze() to match original shape (num_points,)
 
         # print("prob_best_flat", torch.any(torch.isnan(prob_best_flat)))
 
-        # reshape => (batch_size, C, K)
-        prob_best_chunk = prob_best_flat.reshape(batch_size, C, K)
+        # reshape => (batch_size, C, H)
+        prob_best_chunk = prob_best_flat.reshape(batch_size, C, H)
 
         # print("prob_best_chunk1 ", torch.any(torch.isnan(prob_best_chunk)))
         # print(prob_best_chunk)
 
         # normalize
         prob_best_chunk = prob_best_chunk / prob_best_chunk.sum(dim=-1, keepdim=True).clamp_min(eps)
-
 
         # print("prob_best_chunk bottom", torch.any(torch.isnan(prob_best_chunk.sum(dim=-1, keepdim=True).clamp_min(eps))))
         # print("prob_best_chunk2 ", torch.any(torch.isnan(prob_best_chunk)))
@@ -417,7 +411,7 @@ def compute_p_best_beta_batched(
 
         start = end
 
-    # If single_item => shape (C,K)
+    # If single_item => shape (C,H)
     if single_item:
         return prob_best_out[0]
 
@@ -538,43 +532,21 @@ class CODA(ModelSelector):
 
         # initialize dirichlets (confusion matrices) and class marginals
         ensemble_preds = torch.argmax(Ensemble(dataset.preds).get_preds(), dim=-1)
-        pred_classes = torch.argmax(dataset.preds, dim=-1)  # (H, N)
-        if prior_source == "ens" or prior_source == "ens-exp":
-            preds_soft = dataset.preds # F.softmax(dataset.pred_logits, dim=-1)
-            soft_confusion = create_confusion_matrices(true_labels=ensemble_preds, 
-                                                       model_predictions=preds_soft, 
-                                                       mode='soft')
-            self.dirichlets = initialize_dirichlets_with_prior(soft_confusion, 
-                                                               self.prior_strength,
-                                                               base_strength=self.base_strength,
-                                                               base_prior=self.base_prior)
-            self.curr_marginal = compute_ensemble_marginal(self.dirichlets, preds_soft)
-            self.curr_marginal = self.curr_marginal / self.curr_marginal.sum()
-        # elif prior_source == "ens-scaled":
-        #     preds_soft = F.softmax(dataset.pred_logits, dim=-1)
-        #     soft_confusion = create_confusion_matrices(true_labels=ensemble_preds, 
-        #                                                model_predictions=preds_soft, 
-        #                                                mode='soft',
-        #                                                base_prior=self.base_prior)
-        #     self.dirichlets = initialize_dirichlets_with_prior(soft_confusion, self.prior_strength / (self.C-1))
-        #     self.curr_marginal = compute_ensemble_marginal(self.dirichlets, preds_soft)
-        #     self.curr_marginal = self.curr_marginal / self.curr_marginal.sum()
-        # elif prior_source == "ens-hard":
-        #     pred_one_hot = F.one_hot(pred_classes, num_classes=self.C).float()  # (H, N, C)
-        #     hard_confusion = create_confusion_matrices(true_labels=ensemble_preds, 
-        #                                                model_predictions=pred_one_hot, 
-        #                                                mode='hard',
-        #                                                base_prior=self.base_prior)
-        #     self.dirichlets = initialize_dirichlets_with_prior(hard_confusion, self.prior_strength)
-        #     self.curr_marginal = compute_ensemble_marginal(self.dirichlets, pred_one_hot)
-        #     self.curr_marginal = self.curr_marginal / self.curr_marginal.sum()
-        else:
-            raise NotImplemented
+        soft_confusion = create_confusion_matrices(true_labels=ensemble_preds, 
+                                                    model_predictions=dataset.preds, 
+                                                    mode='soft')
+        self.dirichlets = initialize_dirichlets(soft_confusion, 
+                                                            self.prior_strength,
+                                                            base_strength=self.base_strength,
+                                                            base_prior=self.base_prior)
+        # class prior per item
+        self.pi_hat = compute_ensemble_marginal(self.dirichlets, dataset.preds)
+        self.pi_hat = self.pi_hat / self.pi_hat.sum()
 
-        self.d_l_idxs = []
-        self.d_l_ys = []
-        self.d_u_idxs = list(range(dataset.preds.shape[1]))
-        self.qms = []
+        self.labeled_idxs = []
+        self.labels = []
+        self.unlabeled_idxs = list(range(dataset.preds.shape[1]))
+        self.q_vals = []
         self.stochastic = False
 
     @classmethod
@@ -593,99 +565,72 @@ class CODA(ModelSelector):
                     base_prior=args.base_prior
                 )
 
-    def get_next_item_to_label(self):
-        pred_classes = torch.argmax(self.dataset.preds, dim=-1)
-
-        _d_u_idxs = self.d_u_idxs
+    def _prefilter(self, idxs):
         if self.prefilter_fn == 'disagreement':
-            majority_class, _ = torch.mode(pred_classes, dim=0)
-            not_majority_mask = (pred_classes != majority_class.unsqueeze(0))
-            num_disagrements = not_majority_mask.sum(dim=0) # => (N,)
-            idxs_with_disagreement = num_disagrements.nonzero(as_tuple=True)[0].tolist()
-            remaining = set(self.d_u_idxs)
-            _d_u_idxs = [idx for idx in idxs_with_disagreement if idx in remaining]
-        elif self.N > self.prefilter_n and self.prefilter_fn is not None:
-            if self.prefilter_fn == 'iid':
-                _d_u_idxs = random.sample(self.d_u_idxs, k=self.prefilter_n)
-                self.stochastic = True
-            else:
-                raise NotImplemented
-
-        if len(_d_u_idxs) > self.prefilter_n and self.prefilter_n > 0:
-            _d_u_idxs = random.sample(_d_u_idxs, k=self.prefilter_n)
+            maj, _ = torch.mode(self.dataset.preds.argmax(dim=-1), dim=0)
+            mask = (self.dataset.preds.argmax(dim=-1) != maj.unsqueeze(0)).sum(dim=0) > 0
+            idxs = [i for i in idxs if mask[i]]
+        if self.prefilter_n and len(idxs) > self.prefilter_n:
+            idxs = random.sample(idxs, self.prefilter_n)
             self.stochastic = True
+        return idxs
 
-        q = self.q
+    def get_next_item_to_label(self):
+        candidates = self._prefilter(self.unlabeled_idxs)
+        if not candidates:
+            candidates = self.unlabeled_idxs
 
-        if len(_d_u_idxs) == 0:
-            print("Prefiltered all points; falling back to random sampling")
-            q = 'iid'
-
-        if self.epsilon and random.random() < self.epsilon:
-            print("Epsilon sample")
-            q = 'iid'
-
-        if q == 'iid':
-            _q_values = torch.ones(len(_d_u_idxs), device=self.device) * 1 / len(_d_u_idxs)
+        # Random sampling / epsilon‑greedy
+        if self.q == 'iid' or (self.epsilon and random.random() < self.epsilon):
+            idx = random.choice(candidates)
+            prob = 1.0 / len(candidates)
             self.stochastic = True
-        elif q =='eig':
-            dataset_tensor = self.dataset.preds.permute(1,0,2) #F.softmax(self.dataset.pred_logits.permute(1,0,2), dim=-1)
-            _q_values = eig_dirichlet_batched(
-                                self.dirichlets, 
-                                dataset_tensor,
-                                self.curr_marginal,
-                                _d_u_idxs,
-                                chunk_size=4,
-                                update_rule=self.update_rule,
-                                update_weight=self.hypothetical_update_strength
+            return idx, prob
+
+        # Compute acquisition scores
+        if self.q == 'eig':
+            q_vals = eig_dirichlet_batched(
+                self.dirichlets,
+                self.dataset.preds.permute(1, 0, 2),
+                self.pi_hat,
+                candidates,
+                chunk_size=4
             )
-        elif q == 'uncertainty':
-            pred_probs = self.dataset.preds # F.softmax(self.dataset.pred_logits, dim=2)
-            mean_pred_probs = pred_probs.mean(dim=0)
-            epsilon = 1e-8
-            entropy_per_data_point = -torch.sum(mean_pred_probs * torch.log(mean_pred_probs + epsilon), dim=-1)
-            entropy_per_unlabeled_data_point = entropy_per_data_point[_d_u_idxs]
-            _q_values = entropy_per_unlabeled_data_point
-            # chosen_q, chosen_idx_local = torch.max(entropy_per_unlabeled_data_point, dim=0)
-            # chosen_idx_global = self.d_u_idxs[chosen_idx_local]
-            # return chosen_idx_global, chosen_q
+        else:
+            raise NotImplementedError(self.q)
 
-        chosen_q_val, chosen_local_idx = torch.max(_q_values, dim=0)
-        print("chosen_q_val, chosen_local_idx", chosen_q_val, chosen_local_idx)
-        ties = (_q_values == chosen_q_val)
-        print("ties", ties)
-        if ties.sum() > 1:
-            print(ties.sum(), "ties at Q=", chosen_q_val, "; randomly selecting one of these")
-            idxs = torch.nonzero(ties, as_tuple=True)[0]
-            chosen_local_idx = idxs[torch.randperm(len(idxs))[0]]
+        best_val = q_vals.max()
+        ties = torch.isclose(q_vals, best_val, rtol=1e-8, atol=0.0)
+        tie_idxs = torch.nonzero(ties, as_tuple=True)[0].tolist()
+        if len(tie_idxs) > 1:
+            chosen_local = random.choice(tie_idxs)
+            print(len(tie_idxs), "ties at val", best_val)
             self.stochastic = True
-        # chosen_idx = self.d_u_idxs[chosen_local_idx.item()]
-        chosen_idx = _d_u_idxs[chosen_local_idx.item()]
-        chosen_q = chosen_q_val
+        else:
+            chosen_local = tie_idxs[0]
 
-        print("Chosen q, candidate index:", chosen_q, chosen_idx)
-        return chosen_idx, chosen_q
+        chosen_global = candidates[chosen_local]
+        return chosen_global, q_vals[chosen_local].item()
     
     def add_label(self, chosen_idx, true_class, selection_prob):
-        true_class = int(true_class) # just in case; e.g. GLUE preds break this
-        preds_soft = self.dataset.preds # F.softmax(self.dataset.pred_logits, dim=-1)
-        preds_on_item = preds_soft[:, chosen_idx, :]
+        true_class = int(true_class)     # just in case; e.g. GLUE preds break this
+        preds_on_item = self.dataset.preds[:, chosen_idx, :]
         if self.update_rule == "hard":
             preds_on_item = F.one_hot(torch.argmax(preds_on_item, dim=-1), num_classes=self.C).float()
 
         self.dirichlets[:, true_class, :] = self.dirichlets[:, true_class, :] + self.update_strength * preds_on_item
         
         # update class marginal
-        self.curr_marginal = compute_ensemble_marginal(self.dirichlets, preds_soft)
-        self.curr_marginal = self.curr_marginal / self.curr_marginal.sum()
+        self.pi_hat = compute_ensemble_marginal(self.dirichlets, self.dataset.preds)
+        self.pi_hat = self.pi_hat / self.pi_hat.sum()
 
-        self.d_l_idxs.append(chosen_idx)
-        self.d_u_idxs.remove(chosen_idx)
-        self.qms.append(selection_prob)
-        self.d_l_ys.append(true_class)
+        self.labeled_idxs.append(chosen_idx)
+        self.unlabeled_idxs.remove(chosen_idx)
+        self.q_vals.append(selection_prob)
+        self.labels.append(true_class)
 
     def get_best_model_prediction(self):
-        prob_best = compute_p_best_dirichlet(self.dirichlets, self.curr_marginal)
+        prob_best = compute_p_best_dirichlet(self.dirichlets, self.pi_hat)
 
         if torch.isnan(prob_best).any():
             raise ValueError("NaN in posterior")

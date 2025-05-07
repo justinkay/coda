@@ -46,7 +46,6 @@ def parse_args():
     parser.add_argument("--prior-source", default="ens-exp", help="{ 'ens-exp', 'ens-01', 'ds', 'ens-soft-01' }")
     parser.add_argument("--item-priors", default='ens', help="{ 'none', 'ens', bma-adaptive' }")
     
-    
     # CODA settings
     parser.add_argument("--base-prior", default="diag")
     parser.add_argument("--temperature", default=1.0, type=float)
@@ -58,7 +57,6 @@ def parse_args():
 
 def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
     seed_all(seed)
-    labeler = oracle # Label function - oracle or (future work) a user
     true_losses = oracle.true_losses(dataset.preds)
     best_loss = min(oracle.true_losses(dataset.preds))
     print("Best possible loss is", best_loss)
@@ -91,7 +89,7 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
     for m in tqdm(range(args.iters)):
         # select item, label, select model
         chosen_idx, selection_prob = selector.get_next_item_to_label()
-        true_class = labeler(chosen_idx)
+        true_class = oracle(chosen_idx)
         selector.add_label(chosen_idx, true_class, selection_prob)
         best_model_idx_pred = selector.get_best_model_prediction()
 
