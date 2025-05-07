@@ -1,7 +1,6 @@
 import random
 import torch
 from coda.base import ModelSelector
-from coda.beta import weighted_disagreement_candidates  # keep or move as needed
 
 
 class IID(ModelSelector):

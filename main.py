@@ -152,9 +152,10 @@ def main():
                     print("DEBUG ARGS", args.__dict__)
                     seed_stochastic = do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=seed)
                     mlflow.log_param("stochastic", seed_stochastic)
-            if not seed_stochastic:
-                print("Method is not stochastic for this task. Skipping further seeds.")
-                break
+            
+            # if not seed_stochastic:
+            #     print("Method is not stochastic for this task. Skipping further seeds.")
+            #     break
 
 if __name__ == "__main__":
     main()

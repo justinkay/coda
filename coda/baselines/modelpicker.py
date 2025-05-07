@@ -1,14 +1,6 @@
-import random
 import torch
 from coda.base import ModelSelector
-from coda.beta import weighted_disagreement_candidates  # keep or move as needed
 
-import torch
-import numpy as np
-import random
-import torch.nn.functional as F
-
-from coda.base import ModelSelector 
 from surrogates import Ensemble, WeightedEnsemble
 import metrics
 
