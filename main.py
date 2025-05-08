@@ -12,6 +12,9 @@ from coda.baselines import IID, ActiveTesting, VMA, ModelPicker, Uncertainty
 from datasets import Dataset
 from options import LOSS_FNS
 from oracle import Oracle
+from logging_util import plot_bar
+
+DEBUG_VIZ = True
 
 
 def seed_all(seed):
@@ -52,6 +55,7 @@ def parse_args():
     parser.add_argument("--alpha", default=0.9, type=float)
     parser.add_argument("--learning-rate-ratio", default=0.01, type=float)
     parser.add_argument("--update-rule", default="hard", help="Hard or soft dirichlet confusion matrix updates")
+    parser.add_argument("--beta-approx", default=None, help="{None, counts, mom, inflated}")
 
     return parser.parse_args()
 
@@ -66,7 +70,7 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
         selector = IID(dataset, loss_fn)
     elif args.method == 'uncertainty':
         selector = Uncertainty(dataset, loss_fn)
-    elif args.method == 'coda':
+    elif args.method.startswith('coda'):
         selector = CODA.from_args(dataset, args)
     elif args.method == 'activetesting':
         selector = ActiveTesting(dataset, loss_fn)
@@ -84,19 +88,24 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
     else:
         raise ValueError(args.method + " is not a supported method.")
 
+    # Get prior regret
+    best_model_idx_pred = selector.get_best_model_prediction(step=0)# TODO CODA HACK STEP
+    regret_loss = true_losses[best_model_idx_pred] - best_loss
+    print("Regret at 0:", regret_loss)
+
     ## Active model selection loop
     cumulative_regret_loss = 0
     for m in tqdm(range(args.iters)):
         # select item, label, select model
-        chosen_idx, selection_prob = selector.get_next_item_to_label()
+        chosen_idx, selection_prob = selector.get_next_item_to_label(step=m+1) # TODO CODA HACK STEP
         true_class = oracle(chosen_idx)
         selector.add_label(chosen_idx, true_class, selection_prob)
-        best_model_idx_pred = selector.get_best_model_prediction()
+        best_model_idx_pred = selector.get_best_model_prediction(step=m+1) # TODO CODA HACK STEP
 
         # compute and log metrics
         regret_loss = true_losses[best_model_idx_pred] - best_loss
         cumulative_regret_loss += regret_loss
-        print("Regret at", m, ":", regret_loss)
+        print("Regret at", m+1, ":", regret_loss)
         mlflow.log_metric("regret", regret_loss.item(), step=m+1)
         mlflow.log_metric("cumulative regret", cumulative_regret_loss.item(), step=m+1)
 
@@ -123,7 +132,7 @@ def main():
     
     def get_mlflow_run_id(run_name):
         run_id = None
-        matching_runs = mlflow.search_runs(experiment_names=['sketch_painting'], filter_string=f"tags.mlflow.runName = '{run_name}'", max_results=1)
+        matching_runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string=f"tags.mlflow.runName = '{run_name}'", max_results=1)
         finished = False
         stochastic = None
         if len(matching_runs): 
@@ -151,9 +160,9 @@ def main():
                     seed_stochastic = do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=seed)
                     mlflow.log_param("stochastic", seed_stochastic)
             
-            # if not seed_stochastic:
-            #     print("Method is not stochastic for this task. Skipping further seeds.")
-            #     break
+            if not seed_stochastic:
+                print("Method is not stochastic for this task. Skipping further seeds.")
+                break
 
 if __name__ == "__main__":
     main()
