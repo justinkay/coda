@@ -90,6 +90,9 @@ class ModelPicker(ModelSelector):
         else:
             raise NotImplemented
 
+        # track how many times each model has predicted correctly on labeled items
+        self.correct_counts = torch.zeros(self.H, dtype=torch.long, device=self.device)
+
         # labeled and unlabeled points
         self.d_l_idxs = []
         self.d_l_ys = []
@@ -182,6 +185,9 @@ class ModelPicker(ModelSelector):
         # convert bool to int
         agreements_i = agreements_i.long()
 
+        # track correct predictions for accuracy-based model selection
+        self.correct_counts += agreements_i
+
         # 3) update posterior
         # posterior => shape(H,).  We'll do the same formula as code snippet:
         # next_posterior = posterior * gamma^agreements
@@ -252,12 +258,17 @@ class ModelPicker(ModelSelector):
         return entropies
 
     def get_best_model_prediction(self):
-        best_model_prob, best_model_idx_pred = torch.max(self.posterior, dim=0)
-        ties = (self.posterior == best_model_prob)
-        if ties.sum() > 1:
-            idxs = torch.nonzero(ties, as_tuple=True)[0]
-            best_model_idx_pred = idxs[torch.randperm(len(idxs))[0]]
-        return best_model_idx_pred
+        """Return the index of the model with the highest accuracy on
+        labeled data so far. Ties are broken randomly."""
+
+        if len(self.d_l_idxs) == 0:
+            # no labels yet -> pick randomly
+            return torch.randint(self.H, (1,)).item()
+
+        max_acc = torch.max(self.correct_counts)
+        ties = torch.nonzero(self.correct_counts == max_acc, as_tuple=True)[0]
+        idx = ties[torch.randint(len(ties), (1,))]
+        return idx.item()
     
     def get_bma_preds(self):
         prob_best = self.posterior

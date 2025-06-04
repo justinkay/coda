@@ -20,4 +20,4 @@ class Uncertainty(IID):
             idxs = torch.nonzero(ties, as_tuple=True)[0]
             chosen_idx_local = idxs[torch.randperm(len(idxs))[0]]
         chosen_idx_global = self.d_u_idxs[chosen_idx_local]
-        return chosen_idx_global, chosen_q
+        return chosen_idx_global, chosen_q.item()

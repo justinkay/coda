@@ -32,15 +32,19 @@ class ActiveTesting(IID):
         pred_classes = pred_probs.argmax(dim=2)
 
         # Get the surrogate's probability for the predicted classes
-        y_star_probs = pi_y[torch.arange(pi_y.shape[0]), pred_classes]
+        rows_h = torch.arange(self.H, device=device).unsqueeze(-1).expand(self.H, self.N)
+        cols_items = torch.arange(self.N, device=device).unsqueeze(0).expand(self.H, self.N)
+        y_star_probs = pi_y[cols_items, pred_classes]
         
         # Compute the acquisition score
         acquisition_scores = 1 - y_star_probs # (H, N)
         acquisition_scores = acquisition_scores.sum(dim=0)[self.d_u_idxs]
         acquisition_scores /= acquisition_scores.sum()
 
-        chosen_idx = random.choices(self.d_u_idxs, weights=acquisition_scores.cpu().numpy().tolist())[0]
-        chosen_q = acquisition_scores[self.d_u_idxs.index(chosen_idx)]
+        chosen_idx = random.choices(self.d_u_idxs,
+                                   weights=acquisition_scores.cpu().tolist(),
+                                   k=1)[0]
+        chosen_q = acquisition_scores[self.d_u_idxs.index(chosen_idx)].item()
         
         return chosen_idx, chosen_q
 
