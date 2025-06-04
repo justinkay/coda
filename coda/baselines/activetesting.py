@@ -40,7 +40,7 @@ class ActiveTesting(IID):
         acquisition_scores /= acquisition_scores.sum()
 
         chosen_idx = random.choices(self.d_u_idxs, weights=acquisition_scores.cpu().numpy().tolist())[0]
-        chosen_q = acquisition_scores[self.d_u_idxs.index(chosen_idx)]
+        chosen_q = acquisition_scores[self.d_u_idxs.index(chosen_idx)].item()
         
         return chosen_idx, chosen_q
 

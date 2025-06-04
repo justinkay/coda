@@ -8,7 +8,7 @@ import mlflow
 from coda.base import ModelSelector
 from surrogates import Ensemble
 
-DEBUG_VIZ = True
+_DEBUG = True
 from logging_util import plot_bar
 
 
@@ -19,6 +19,31 @@ from logging_util import plot_bar
 def distribution_entropy(prob: torch.Tensor, eps=1e-12) -> torch.Tensor:
     prob_clamped = prob.clamp(min=eps)
     return -(prob_clamped * prob_clamped.log2()).sum()
+
+def _check(t: torch.Tensor, name: str, *, raise_err=True):
+    """Assert tensor has no NaN/±Inf and print useful stats."""
+    if _DEBUG:
+        bad = ~torch.isfinite(t)
+        if bad.any():
+            msg = (f"[NUMERIC ERROR] {name} has {bad.sum()} bad values "
+                f"(NaN/Inf) out of {t.numel()} "
+                f"min={t.min().item():.3g}, max={t.max().item():.3g}")
+            if raise_err:
+                raise RuntimeError(msg)
+            print(msg)
+    return t  # so you can inline it
+
+def _check_prob(p: torch.Tensor, name="prob", eps=1e-12):
+    if _DEBUG:
+        _check(p, name)
+        if (p < -eps).any():
+            raise RuntimeError(f"{name} has negatives")
+        s = p.sum(-1)
+        if (torch.isnan(s) | torch.isinf(s)).any():
+            raise RuntimeError(f"{name} sum is nan/inf")
+        if ((s - 1).abs() > 1e-4).any():
+            print(f"[WARN] {name} rows not normalised: min sum={s.min():.4f}, "
+                f"max sum={s.max():.4f}")
 
 # ---------------------------------------------------------------------
 # Dirichlet → Beta helpers
@@ -94,11 +119,12 @@ def dirichlet_to_beta_overall(dirichlet_alphas: torch.Tensor,
 
 def compute_p_best_beta(alpha: torch.Tensor,
                         beta: torch.Tensor,
-                        num_points: int = 128,
+                        num_points: int = 1024,
                         eps: float = 1e-30) -> torch.Tensor:
     device = alpha.device
     x = torch.linspace(1e-6, 1 - 1e-6, num_points, device=device)     # (P,)
     pdf = torch.exp(Beta(alpha, beta).log_prob(x.unsqueeze(1))).T     # (H,P)
+    _check(pdf, "pdf")
 
     # cdf = torch.zeros_like(pdf)
     # for j in range(1, num_points):
@@ -119,7 +145,7 @@ def compute_p_best_beta(alpha: torch.Tensor,
 
 def compute_p_best_dirichlet(alpha_dirichlet: torch.Tensor,
                              marginal_distribution: torch.Tensor,
-                             num_points: int = 128,
+                             num_points: int = 1024,
                              approx=None) -> torch.Tensor:
     print("approx", approx, type(approx))
     if approx is None or approx.lower() == "none":
@@ -140,7 +166,7 @@ def compute_p_best_dirichlet(alpha_dirichlet: torch.Tensor,
 def compute_p_best_mom(alpha: torch.Tensor,
                        beta: torch.Tensor,
                        marginal_distribution: torch.Tensor,
-                       num_points: int = 128) -> torch.Tensor:
+                       num_points: int = 1024) -> torch.Tensor:
     mean = (marginal_distribution * (alpha / (alpha + beta))).sum(1)
     var = (marginal_distribution**2 *
            (alpha * beta) / ((alpha + beta)**2 * (alpha + beta + 1))).sum(1)
@@ -227,7 +253,7 @@ def batch_update_dirichlet_for_item(dirichlet_alphas: torch.Tensor,
 
 def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
                                 beta_batch:  torch.Tensor,
-                                num_points: int = 128,
+                                num_points: int = 1024,
                                 eps: float = 1e-30,
                                 chunk_size: int = None) -> torch.Tensor:
     device = alpha_batch.device
@@ -250,17 +276,23 @@ def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
         b_flat = beta_batch[start:end].reshape(-1, H)
         logpdf = Beta(a_flat.reshape(-1), b_flat.reshape(-1)).log_prob(x)
         pdf = logpdf.exp().T.reshape(-1, H, num_points)         # B*C × H × P
+        _check(pdf, "pdf")
 
         cdf = torch.zeros_like(pdf)
         for j in range(1, num_points):
             dx = x[j] - x[j-1]
             cdf[:, :, j] = cdf[:, :, j-1] + 0.5*(pdf[:, :, j] + pdf[:, :, j-1])*dx
+        _check(cdf, "cdf")
 
         log_cdf = torch.log(cdf.clamp_min(eps))
         prod_excl = torch.exp(log_cdf.sum(1, keepdim=True) - log_cdf)
         integrand = pdf * prod_excl
+        _check(integrand, "integrand")
+
         prob = torch.trapz(integrand, x.squeeze(), dim=2)
+        _check(prob, "Pbest(beta)") 
         prob = prob / prob.sum(-1, keepdim=True).clamp_min(eps)
+        _check_prob(prob, "Pbest(beta)-norm")
         prob_out[start:end] = prob.reshape(end-start, C, H)
 
     return prob_out[0] if single_item else prob_out
@@ -270,7 +302,7 @@ def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
 # ---------------------------------------------------------------------
 def compute_p_best_row_mixture(alpha_dirichlet: torch.Tensor,
                                marginal_distribution: torch.Tensor,
-                               num_points: int = 128) -> torch.Tensor:
+                               num_points: int = 1024) -> torch.Tensor:
     """
     No collapse to a single Beta.
     For each class c:
@@ -301,10 +333,12 @@ def compute_p_best_row_mixture(alpha_dirichlet: torch.Tensor,
         p_best_c = compute_p_best_beta(alpha_cc[:, c],
                                        beta_cc[:, c],
                                        num_points=num_points)   # (H,)
+        _check(p_best_c, f"p_best_c={c}")
         prob_best += marginal_distribution[c] * p_best_c        # weight by π_c
 
     # 3.  Safeguard & normalise
     prob_best = prob_best / prob_best.sum().clamp_min(1e-12)
+    _check_prob(prob_best, "prob_best")
     return prob_best
 
 # ---------------------------------------------------------------------
@@ -312,7 +346,7 @@ def compute_p_best_row_mixture(alpha_dirichlet: torch.Tensor,
 # ---------------------------------------------------------------------
 def _p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
                                 pi: torch.Tensor,
-                                num_points: int = 128) -> torch.Tensor:
+                                num_points: int = 1024) -> torch.Tensor:
     """
     updated_dirichlet : (B, C, H, C, C)
     pi                : (C,)
@@ -355,7 +389,7 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
                           update_weight: float = 1.0,
                           update_rule: str = "hard",
                           beta_approx=None,
-                          num_points: int = 128) -> torch.Tensor:
+                          num_points: int = 1024) -> torch.Tensor:
 
     device   = dirichlet_alphas.device
     _, H, C  = worker_preds.shape
@@ -535,6 +569,7 @@ class CODA(ModelSelector):
         p_best = compute_p_best_dirichlet(self.dirichlets,
                                           self.pi_hat,
                                           approx=None ) #self.beta_approx)
+        
         if torch.isnan(p_best).any():
             raise ValueError("NaN in posterior")
         

@@ -16,6 +16,7 @@ from logging_util import plot_bar
 
 DEBUG_VIZ = True
 
+mlflow.set_tracking_uri('sqlite:///coda.sqlite')
 
 def seed_all(seed):
     random.seed(seed)
