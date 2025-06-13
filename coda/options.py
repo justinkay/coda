@@ -1,7 +1,7 @@
 import torch
 from torch.nn.functional import cross_entropy
 
-from surrogates import Ensemble, OracleSurrogate
+from .surrogates import Ensemble, OracleSurrogate
 
 
 def accuracy_loss(preds, labels, **kwargs):
