@@ -122,6 +122,7 @@ def main():
     p = argparse.ArgumentParser(description="Unsupervised epsilon tuning via grid search (reference implementation)")
     p.add_argument("--preds", help="Path to (H,N,C) tensor of model predictions")
     p.add_argument("--pred-dir", default='data', help="Directory containing prediction tensors (.pt)")
+    p.add_argument("--task", help="Task name; uses <task>.pt from --pred-dir", default=None)
     p.add_argument("--epsilons", default="0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49")
     # Match the reference implementation defaults (Table 3)
     p.add_argument("--iterations", type=int, default=1000,
@@ -133,8 +134,11 @@ def main():
     p.add_argument("--threshold", type=float, default=0.9, help="Success threshold for fastest metric")
     args = p.parse_args()
 
+    if args.task:
+        args.preds = os.path.join(args.pred_dir, args.task + ".pt")
+
     if not args.preds and not args.pred_dir:
-        p.error("Either --preds or --pred-dir must be specified")
+        p.error("Either --preds, --pred-dir or --task must be specified")
 
     results_path = "best_epsilons.json"
     overall = {}
@@ -142,7 +146,21 @@ def main():
         with open(results_path) as f:
             overall = json.load(f)
 
-    if args.pred_dir:
+    if args.task or args.preds:
+        if args.task:
+            key = args.task
+            path = args.preds
+        else:
+            key = os.path.basename(args.preds)
+            path = args.preds
+        if key in overall:
+            print(key, "already computed; skipping")
+        else:
+            res = run_grid_search(path, args)
+            overall[key] = {"best_avg": res["best_avg"], "best_fast": res["best_fast"]}
+            with open(results_path, "w") as f:
+                json.dump(overall, f, indent=2)
+    elif args.pred_dir:
         pt_files = [f for f in os.listdir(args.pred_dir) if f.endswith(".pt") and not f.endswith("_labels.pt")]
         pt_files.sort()
         for fname in pt_files:
@@ -155,10 +173,7 @@ def main():
             with open(results_path, "w") as f:
                 json.dump(overall, f, indent=2)
     else:
-        res = run_grid_search(args.preds, args)
-        overall[os.path.basename(args.preds)] = {"best_avg": res["best_avg"], "best_fast": res["best_fast"]}
-        with open(results_path, "w") as f:
-            json.dump(overall, f, indent=2)
+        p.error("No predictions specified")
 
 
 if __name__ == "__main__":
