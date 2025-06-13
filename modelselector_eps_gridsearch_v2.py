@@ -117,6 +117,12 @@ def run_grid_search(pred_path: str, args):
         "metrics": results,
     }
 
+def load_results(results_path):
+    overall = {}
+    if os.path.exists(results_path):
+        with open(results_path) as f:
+            overall = json.load(f)
+    return overall
 
 def main():
     p = argparse.ArgumentParser(description="Unsupervised epsilon tuning via grid search (reference implementation)")
@@ -141,10 +147,7 @@ def main():
         p.error("Either --preds, --pred-dir or --task must be specified")
 
     results_path = "best_epsilons.json"
-    overall = {}
-    if os.path.exists(results_path):
-        with open(results_path) as f:
-            overall = json.load(f)
+    overall = load_results(results_path)
 
     if args.task or args.preds:
         if args.task:
@@ -157,6 +160,8 @@ def main():
             print(key, "already computed; skipping")
         else:
             res = run_grid_search(path, args)
+            # reload in case another thread wrote -- kind of hacky
+            overall = load_results(results_path)
             overall[key] = {"best_avg": res["best_avg"], "best_fast": res["best_fast"]}
             with open(results_path, "w") as f:
                 json.dump(overall, f, indent=2)
@@ -169,6 +174,8 @@ def main():
                 continue
             path = os.path.join(args.pred_dir, fname)
             res = run_grid_search(path, args)
+            # reload in case another thread wrote -- kind of hacky
+            overall = load_results(results_path)
             overall[fname] = {"best_avg": res["best_avg"], "best_fast": res["best_fast"]}
             with open(results_path, "w") as f:
                 json.dump(overall, f, indent=2)
