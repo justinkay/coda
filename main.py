@@ -9,9 +9,9 @@ from torchmetrics import Accuracy
 
 from coda import CODA
 from coda.baselines import IID, ActiveTesting, VMA, ModelPicker, Uncertainty
-from datasets import Dataset
-from options import LOSS_FNS
-from oracle import Oracle
+from coda.datasets import Dataset
+from coda.options import LOSS_FNS
+from coda.oracle import Oracle
 from logging_util import plot_bar
 
 DEBUG_VIZ = True

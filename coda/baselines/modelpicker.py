@@ -1,8 +1,8 @@
 import torch
 from coda.base import ModelSelector
 
-from surrogates import Ensemble, WeightedEnsemble
-import metrics
+from coda.surrogates import Ensemble, WeightedEnsemble
+from coda import metrics
 
 
 # best epsilons based on self-supervised grid search

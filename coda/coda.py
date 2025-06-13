@@ -6,7 +6,7 @@ import random
 import mlflow
 
 from coda.base import ModelSelector
-from surrogates import Ensemble
+from coda.surrogates import Ensemble
 
 _DEBUG = True
 from logging_util import plot_bar
