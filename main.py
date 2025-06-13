@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument("--acc", help="Accuracy fn. Options specific to dataset, see main.py.", default="acc")
     parser.add_argument("--iters", type=int, default=100)
     parser.add_argument("--seeds", type=int, default=5) # how many seeds to use - one experiment per seed
-    parser.add_argument("--force-rerun", action="store_true", help="Overwrite existing comet runs.")
+    parser.add_argument("--force-rerun", action="store_true", help="Overwrite existing runs.")
     parser.add_argument("--experiment-name", default=None) # overrides default of using task as experiment name
 
     # method settings
