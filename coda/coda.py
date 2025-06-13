@@ -9,7 +9,7 @@ from coda.base import ModelSelector
 from .surrogates import Ensemble
 
 _DEBUG = True
-from logging_util import plot_bar
+from .logging_util import plot_bar
 
 
 # ---------------------------------------------------------------------
@@ -50,7 +50,7 @@ def _check_prob(p: torch.Tensor, name="prob", eps=1e-12):
 # ---------------------------------------------------------------------
 
 def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
-    """Row‑wise conversion: returns α_cc, β_cc  (H,C)."""
+    """Row-wise conversion: returns α_cc, β_cc  (H,C)."""
     H, C, _ = alpha_dirichlet.shape
     alpha_cc = alpha_dirichlet[:, torch.arange(C), torch.arange(C)]
     beta_cc  = alpha_dirichlet.sum(dim=2) - alpha_cc
@@ -60,7 +60,7 @@ def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
 
 
 # ---------------------------------------------------------------------
-# Single‑Beta “probability best” for arbitrary α,β
+# Single-Beta “probability best” for arbitrary α,β
 # ---------------------------------------------------------------------
 
 def compute_p_best_beta(alpha: torch.Tensor,
@@ -340,7 +340,7 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
 
 
 # ---------------------------------------------------------------------
-# CODA model‑selector class
+# CODA model-selector class
 # ---------------------------------------------------------------------
 
 class CODA(ModelSelector):
