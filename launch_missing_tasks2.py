@@ -35,6 +35,7 @@ def main():
         "1",
     ]
 
+    procs = []
     for fname in pt_files:
         task = fname[:-3]
         if task in existing:
@@ -48,7 +49,11 @@ def main():
             args.pred_dir,
         ]
         print("Launching:", " ".join(cmd))
-        subprocess.run(cmd)
+        procs.append(subprocess.Popen(cmd))
+
+    # Wait for all launched jobs to finish
+    for p in procs:
+        p.wait()
 
 
 if __name__ == "__main__":
