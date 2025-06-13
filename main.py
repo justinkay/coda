@@ -56,7 +56,6 @@ def parse_args():
     parser.add_argument("--alpha", default=0.9, type=float)
     parser.add_argument("--learning-rate-ratio", default=0.01, type=float)
     parser.add_argument("--update-rule", default="hard", help="Hard or soft dirichlet confusion matrix updates")
-    parser.add_argument("--beta-approx", default=None, help="{None, counts, mom, inflated}")
 
     return parser.parse_args()
 

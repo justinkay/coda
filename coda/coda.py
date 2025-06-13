@@ -57,60 +57,6 @@ def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
     return alpha_cc, beta_cc
 
 
-def dirichlet_to_beta_with_marginal(dirichlet_alphas: torch.Tensor,
-                                    marginal_distribution: torch.Tensor):
-    """
-    Aggregated pseudo‑counts (“counts” approximation).
-    Returns (H,) α,β.
-    """
-    diag_counts = dirichlet_alphas.diagonal(dim1=-2, dim2=-1)       # (...,C)
-    row_sums    = dirichlet_alphas.sum(dim=-1)                      # (...,C)
-    alpha_beta  = (marginal_distribution * diag_counts).sum(dim=-1)
-    beta_beta   = (marginal_distribution * (row_sums - diag_counts)).sum(dim=-1)
-    return alpha_beta.clamp(min=1e-3), beta_beta.clamp(min=1e-3)
-
-
-def dirichlet_to_beta_overall(dirichlet_alphas: torch.Tensor,
-                              marginal_distribution: torch.Tensor,
-                              approx: str = "counts"):
-    """
-    Shared helper: given ...×C×C Dirichlet, return α,β per leading entry
-    according to 'counts', 'mom', or 'inflated'.
-    """
-    if approx == "counts":
-        return dirichlet_to_beta_with_marginal(dirichlet_alphas,
-                                               marginal_distribution)
-
-    # Common pieces for MoM and inflated
-    C = dirichlet_alphas.shape[-1]
-    diag = dirichlet_alphas[..., torch.arange(C), torch.arange(C)]      # ...×C
-    row_sum = dirichlet_alphas.sum(dim=-1)                              # ...×C
-    row_mean = diag / row_sum                                           # ...×C
-    row_var  = (diag * (row_sum - diag)) / (row_sum**2 * (row_sum + 1)) # ...×C
-
-    mu = (marginal_distribution * row_mean).sum(dim=-1)                 # ...
-    var_within = (marginal_distribution**2 * row_var).sum(dim=-1)       # ...
-
-    if approx == "mom":
-        total_var = var_within
-    elif approx == "inflated":
-        between = (marginal_distribution *
-                   (row_mean - mu.unsqueeze(-1))**2).sum(dim=-1)
-        total_var = var_within + between
-    else:
-        raise ValueError(f"Unknown beta approximation: {approx}")
-
-    eps = 1e-6
-    mu_safe = mu.clamp(eps, 1 - eps)
-    var_max = mu_safe * (1 - mu_safe)
-    var_clamped = torch.min(total_var, var_max - eps)
-
-    nu = mu_safe * (1 - mu_safe) / (var_clamped + eps) - 1
-    nu = nu.clamp(min=eps)
-
-    alpha_beta = mu_safe * nu
-    beta_beta  = (1 - mu_safe) * nu
-    return alpha_beta, beta_beta
 
 
 # ---------------------------------------------------------------------
@@ -138,45 +84,6 @@ def compute_p_best_beta(alpha: torch.Tensor,
     prod_excl = torch.exp(log_cdf.sum(0).unsqueeze(0) - log_cdf)
     prob_best = torch.trapz(pdf * prod_excl, x, dim=1)
     return prob_best / prob_best.sum()
-
-# ---------------------------------------------------------------------
-# Dirichlet → P(best) with selectable approximation
-# ---------------------------------------------------------------------
-
-def compute_p_best_dirichlet(alpha_dirichlet: torch.Tensor,
-                             marginal_distribution: torch.Tensor,
-                             num_points: int = 1024,
-                             approx=None) -> torch.Tensor:
-    print("approx", approx, type(approx))
-    if approx is None or approx.lower() == "none":
-        print("Computing full PBest")
-        return compute_p_best_row_mixture(alpha_dirichlet, marginal_distribution, num_points=num_points)
-    elif approx == "mom":
-        alpha_cc, beta_cc = dirichlet_to_beta(alpha_dirichlet)
-        return compute_p_best_mom(alpha_cc, beta_cc, marginal_distribution, num_points)
-    else:
-        # 'counts' or 'inflated'
-        a, b = dirichlet_to_beta_overall(alpha_dirichlet, marginal_distribution, approx)
-        return compute_p_best_beta(a, b, num_points)
-
-# ---------------------------------------------------------------------
-# Method of moments beta approx
-# ---------------------------------------------------------------------
-
-def compute_p_best_mom(alpha: torch.Tensor,
-                       beta: torch.Tensor,
-                       marginal_distribution: torch.Tensor,
-                       num_points: int = 1024) -> torch.Tensor:
-    mean = (marginal_distribution * (alpha / (alpha + beta))).sum(1)
-    var = (marginal_distribution**2 *
-           (alpha * beta) / ((alpha + beta)**2 * (alpha + beta + 1))).sum(1)
-    eps = 1e-6
-    mu = mean.clamp(eps, 1 - eps)
-    var_clamped = torch.min(var, mu * (1 - mu) - eps)
-    nu = mu * (1 - mu) / (var_clamped + eps) - 1
-    nu = nu.clamp(min=eps)
-    a, b = mu * nu, (1 - mu) * nu
-    return compute_p_best_beta(a, b, num_points)
 
 # ---------------------------------------------------------------------
 # Confusion‑matrix helpers (unchanged)
@@ -388,7 +295,6 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
                           chunk_size: int = 100,
                           update_weight: float = 1.0,
                           update_rule: str = "hard",
-                          beta_approx=None,
                           num_points: int = 1024) -> torch.Tensor:
 
     device   = dirichlet_alphas.device
@@ -398,9 +304,9 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
     candidates = torch.tensor(candidate_ids, device=device)
 
     # -------- current posterior entropy --------------------------------
-    current_probs = compute_p_best_dirichlet(dirichlet_alphas, pi,
-                                             approx=beta_approx, # TODO
-                                             num_points=num_points)
+    current_probs = compute_p_best_row_mixture(dirichlet_alphas,
+                                               pi,
+                                               num_points=num_points)
     H_current = distribution_entropy(current_probs)
 
     eig_chunks = []
@@ -417,20 +323,10 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
                                                   update_weight)
 
         # --------------------------------------------------------------
-        #   Choose posterior style
+        #   Compute posterior probabilities using the row-mixture method
         # --------------------------------------------------------------
-        if beta_approx is None:
-            # exact mixture, now vectorised
-            updated_probs = _p_best_row_mixture_batched(updated, pi,
-                                                        num_points)   # (B,C,H)
-        else:
-            # existing one-Beta approximations
-            flat = updated.reshape(-1, C, C)                     # (B*C*H, C, C)
-            a_flat, b_flat = dirichlet_to_beta_overall(flat, pi, approx=beta_approx)
-            a_batch = a_flat.reshape(len(ids), C, H)
-            b_batch = b_flat.reshape(len(ids), C, H)
-            updated_probs = compute_p_best_beta_batched(a_batch, b_batch,
-                                                        num_points=num_points)
+        updated_probs = _p_best_row_mixture_batched(updated, pi,
+                                                    num_points)   # (B,C,H)
 
         # entropy for each hypothetical class
         p_clamped = updated_probs.clamp_min(1e-12)
@@ -458,8 +354,7 @@ class CODA(ModelSelector):
                  base_prior="diag",
                  temperature=1.0,
                  alpha=0.9,
-                 learning_rate_ratio=0.01,
-                 beta_approx=None
+                 learning_rate_ratio=0.01
                  ):
         self.dataset = dataset
         self.device = dataset.preds.device
@@ -470,7 +365,6 @@ class CODA(ModelSelector):
         self.epsilon = epsilon
         self.update_rule = update_rule
         self.base_prior = base_prior
-        self.beta_approx = beta_approx
 
         # hyper‐params → strengths
         self.base_strength = alpha / temperature
@@ -507,8 +401,7 @@ class CODA(ModelSelector):
                    temperature=args.temperature,
                    alpha=args.alpha,
                    learning_rate_ratio=args.learning_rate_ratio,
-                   base_prior=args.base_prior,
-                   beta_approx=args.beta_approx)
+                   base_prior=args.base_prior)
 
     # ---------------------
 
@@ -533,8 +426,7 @@ class CODA(ModelSelector):
                                            self.dataset.preds.permute(1, 0, 2),
                                            self.pi_hat,
                                            cand,
-                                           chunk_size=8,
-                                           beta_approx=self.beta_approx)
+                                           chunk_size=8)
         else:
             raise NotImplementedError(self.q)
 
@@ -566,9 +458,8 @@ class CODA(ModelSelector):
         self.unlabeled_idxs.remove(idx)
 
     def get_best_model_prediction(self, step=None):
-        p_best = compute_p_best_dirichlet(self.dirichlets,
-                                          self.pi_hat,
-                                          approx=None ) #self.beta_approx)
+        p_best = compute_p_best_row_mixture(self.dirichlets,
+                                            self.pi_hat)
         
         if torch.isnan(p_best).any():
             raise ValueError("NaN in posterior")
