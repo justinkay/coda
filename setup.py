@@ -10,5 +10,7 @@ setup(
         'mlflow',
         'numpy',
         'torchmetrics',
+        'matplotlib',
+        'pillow',
     ],
 )

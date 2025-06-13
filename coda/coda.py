@@ -9,7 +9,7 @@ from coda.base import ModelSelector
 from coda.surrogates import Ensemble
 
 _DEBUG = True
-from logging_util import plot_bar
+from coda.logging_util import plot_bar
 
 
 # ---------------------------------------------------------------------

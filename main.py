@@ -12,7 +12,7 @@ from coda.baselines import IID, ActiveTesting, VMA, ModelPicker, Uncertainty
 from coda.datasets import Dataset
 from coda.options import LOSS_FNS
 from coda.oracle import Oracle
-from logging_util import plot_bar
+from coda.logging_util import plot_bar
 
 DEBUG_VIZ = True
 
