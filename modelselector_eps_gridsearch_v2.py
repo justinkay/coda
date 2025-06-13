@@ -9,6 +9,14 @@ from datasets import Dataset
 from coda.baselines.modelpicker import ModelPicker
 
 
+def smooth_data(x: np.ndarray, kernel_size: int = 5) -> np.ndarray:
+    """Return a moving average smoothed version of ``x``."""
+    kernel = np.ones(kernel_size) / kernel_size
+    pad = kernel_size // 2
+    x_padded = np.pad(x, (pad, pad), "constant", constant_values=(x[0], x[-1]))
+    return np.convolve(x_padded, kernel, "valid")
+
+
 def majority_vote_labels(preds: torch.Tensor) -> np.ndarray:
     """Return majority vote labels for predictions of shape (H,N,C)."""
     pred_classes = preds.argmax(dim=2)  # (H,N)
@@ -92,10 +100,11 @@ def run_grid_search(pred_path: str, args):
             success_runs.append(success_t)
             acc_runs.append(acc_t)
         success_mean, acc_mean = evaluate(np.array(success_runs), np.array(acc_runs))
+        smooth_success = smooth_data(success_mean, kernel_size=5)
         avg_success = float(np.mean(success_mean))
         try:
-            t_fast = int(np.argmax(success_mean >= args.threshold))
-            if success_mean[t_fast] < args.threshold:
+            t_fast = int(np.argmax(smooth_success > args.threshold))
+            if smooth_success[t_fast] <= args.threshold:
                 t_fast = float("inf")
         except ValueError:
             t_fast = float("inf")
