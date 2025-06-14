@@ -294,7 +294,6 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
                           candidate_ids: list[int],
                           chunk_size: int = 100,
                           update_weight: float = 1.0,
-                          update_rule: str = "hard",
                           num_points: int = 1024) -> torch.Tensor:
 
     device   = dirichlet_alphas.device
@@ -312,10 +311,7 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
     eig_chunks = []
     for s in tqdm(range(0, len(candidates), chunk_size)):
         ids   = candidates[s:s + chunk_size]              # (B,)
-        preds = worker_preds[ids]                         # (B,H,C)
-
-        if update_rule == "hard":
-            preds = F.one_hot(preds.argmax(-1), C).float()
+        preds = F.one_hot(worker_preds[ids].argmax(-1), C).float()  # (B,H,C)
 
         # (B,C,H,C,C)
         updated = batch_update_dirichlet_for_item(dirichlet_alphas,
@@ -350,7 +346,6 @@ class CODA(ModelSelector):
                  prefilter_fn='disagreement',
                  prefilter_n=0,
                  epsilon=0.0,
-                 update_rule="hard",
                  base_prior="diag",
                  temperature=1.0,
                  alpha=0.9,
@@ -363,7 +358,6 @@ class CODA(ModelSelector):
         self.prefilter_fn = prefilter_fn
         self.prefilter_n = prefilter_n
         self.epsilon = epsilon
-        self.update_rule = update_rule
         self.base_prior = base_prior
 
         # hyper‐params → strengths
@@ -397,7 +391,6 @@ class CODA(ModelSelector):
                    prefilter_fn=args.prefilter_fn,
                    prefilter_n=args.prefilter_n,
                    epsilon=args.epsilon,
-                   update_rule=args.update_rule,
                    temperature=args.temperature,
                    alpha=args.alpha,
                    learning_rate_ratio=args.learning_rate_ratio,
@@ -445,9 +438,7 @@ class CODA(ModelSelector):
         return cand[idx_local], q_vals[idx_local].item()
 
     def add_label(self, idx, true_class, selection_prob):
-        preds = self.dataset.preds[:, idx]
-        if self.update_rule == "hard":
-            preds = F.one_hot(preds.argmax(-1), self.C).float()
+        preds = F.one_hot(self.dataset.preds[:, idx].argmax(-1), self.C).float()
         self.dirichlets[:, true_class] += self.update_strength * preds
         self.pi_hat = compute_ensemble_marginal(self.dirichlets, self.dataset.preds)
         self.pi_hat = self.pi_hat / self.pi_hat.sum()
