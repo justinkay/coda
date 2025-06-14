@@ -11,7 +11,6 @@ from .surrogates import Ensemble
 _DEBUG = True
 from .logging_util import plot_bar
 
-
 # ---------------------------------------------------------------------
 # utilities
 # ---------------------------------------------------------------------
@@ -55,35 +54,6 @@ def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
     alpha_cc = alpha_dirichlet[:, torch.arange(C), torch.arange(C)]
     beta_cc  = alpha_dirichlet.sum(dim=2) - alpha_cc
     return alpha_cc, beta_cc
-
-
-
-
-# ---------------------------------------------------------------------
-# Single-Beta “probability best” for arbitrary α,β
-# ---------------------------------------------------------------------
-
-def compute_p_best_beta(alpha: torch.Tensor,
-                        beta: torch.Tensor,
-                        num_points: int = 1024,
-                        eps: float = 1e-30) -> torch.Tensor:
-    device = alpha.device
-    x = torch.linspace(1e-6, 1 - 1e-6, num_points, device=device)     # (P,)
-    pdf = torch.exp(Beta(alpha, beta).log_prob(x.unsqueeze(1))).T     # (H,P)
-    _check(pdf, "pdf")
-
-    # cdf = torch.zeros_like(pdf)
-    # for j in range(1, num_points):
-    #     dx = x[j] - x[j - 1]
-    #     cdf[:, j] = cdf[:, j - 1] + 0.5 * (pdf[:, j] + pdf[:, j - 1]) * dx
-    dx   = x[1] - x[0]                                              # scalar
-    cdf  = torch.cumsum(pdf, dim=-1) - 0.5*pdf[:, 0:1] - 0.5*pdf    # rectangle rule
-    cdf  = cdf * dx                                                 # now exact trapezoid integral
-
-    log_cdf = torch.log(cdf.clamp_min(eps))
-    prod_excl = torch.exp(log_cdf.sum(0).unsqueeze(0) - log_cdf)
-    prob_best = torch.trapz(pdf * prod_excl, x, dim=1)
-    return prob_best / prob_best.sum()
 
 # ---------------------------------------------------------------------
 # Confusion‑matrix helpers (unchanged)
@@ -205,50 +175,6 @@ def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
     return prob_out[0] if single_item else prob_out
 
 # ---------------------------------------------------------------------
-# Row-wise mixture:  P(best) = Σ_c π_c · P(best | class = c)
-# ---------------------------------------------------------------------
-def compute_p_best_row_mixture(alpha_dirichlet: torch.Tensor,
-                               marginal_distribution: torch.Tensor,
-                               num_points: int = 1024) -> torch.Tensor:
-    """
-    No collapse to a single Beta.
-    For each class c:
-        • turn the Dirichlet row into Beta(α_cc, β_cc)  (per model)
-        • integrate P(best) across models
-    Weight those per-class results by π_c and renormalise.
-
-    Args
-    ----
-    alpha_dirichlet : (H, C, C)  posterior Dirichlet rows
-    marginal_distribution : (C,)  class priors  π
-    num_points : integration grid size for Beta PDFs
-
-    Returns
-    -------
-    prob_best : (H,)  probability each model is best
-    """
-
-    # 1.  Get per-class Beta parameters  (H, C)
-    alpha_cc, beta_cc = dirichlet_to_beta(alpha_dirichlet)
-
-    H, C = alpha_cc.shape
-    device = alpha_cc.device
-    prob_best = torch.zeros(H, device=device)
-
-    # 2.  Loop over classes (C is usually ≪ H, so this is cheap)
-    for c in range(C):
-        p_best_c = compute_p_best_beta(alpha_cc[:, c],
-                                       beta_cc[:, c],
-                                       num_points=num_points)   # (H,)
-        _check(p_best_c, f"p_best_c={c}")
-        prob_best += marginal_distribution[c] * p_best_c        # weight by π_c
-
-    # 3.  Safeguard & normalise
-    prob_best = prob_best / prob_best.sum().clamp_min(1e-12)
-    _check_prob(prob_best, "prob_best")
-    return prob_best
-
-# ---------------------------------------------------------------------
 # fast row-mixture helper  (vectorised, no Python loops)
 # ---------------------------------------------------------------------
 def _p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
@@ -303,9 +229,11 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
     candidates = torch.tensor(candidate_ids, device=device)
 
     # -------- current posterior entropy --------------------------------
-    current_probs = compute_p_best_row_mixture(dirichlet_alphas,
-                                               pi,
-                                               num_points=num_points)
+    H, C_dir, _ = dirichlet_alphas.shape
+    expanded = dirichlet_alphas.unsqueeze(0).unsqueeze(0).expand(1, C_dir, H, C_dir, C_dir)
+    current_probs_c = _p_best_row_mixture_batched(expanded, pi,
+                                                 num_points=num_points)  # (1,C,H)
+    current_probs = (current_probs_c * pi.view(1, C_dir, 1)).sum(1).squeeze(0)
     H_current = distribution_entropy(current_probs)
 
     eig_chunks = []
@@ -424,10 +352,7 @@ class CODA(ModelSelector):
             raise NotImplementedError(self.q)
 
         if step is not None:
-            print("Lggig EIG")
             mlflow.log_image(plot_bar(q_vals), key="EIG", step=step)
-        else:
-            print("NOT logging eig")
 
         best = q_vals.max()
         ties = torch.isclose(q_vals, best, rtol=1e-8)
@@ -449,8 +374,11 @@ class CODA(ModelSelector):
         self.unlabeled_idxs.remove(idx)
 
     def get_best_model_prediction(self, step=None):
-        p_best = compute_p_best_row_mixture(self.dirichlets,
-                                            self.pi_hat)
+        H, C, _ = self.dirichlets.shape
+        expanded = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, C, H, C, C)
+        probs_c = _p_best_row_mixture_batched(expanded,
+                                              self.pi_hat)
+        p_best = (probs_c * self.pi_hat.view(1, C, 1)).sum(1).squeeze(0)
         
         if torch.isnan(p_best).any():
             raise ValueError("NaN in posterior")
