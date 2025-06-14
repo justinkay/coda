@@ -42,7 +42,7 @@ def main():
             continue
         cmd = srun_prefix + [
             "python",
-            "modelselector_eps_gridsearch_v2.py",
+            "scripts/modelselector_eps_gridsearch_v2.py",
             "--task",
             task,
             "--pred-dir",
