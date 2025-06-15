@@ -37,6 +37,10 @@ class ModelPicker(ModelSelector):
         self.device = dataset.preds.device
         self.H, self.N, self.C = dataset.preds.shape
 
+        preds = self.dataset.preds.argmax(dim=2).transpose(0, 1)  # (N, H)
+        first_col = preds[:, [0]]
+        self._disagreement_mask = (preds != first_col).any(dim=1)
+
         self.epsilon = float(epsilon)
         self.gamma = (1.0 - self.epsilon) / self.epsilon
         self.posterior = torch.ones(self.H, device=self.device) / self.H
@@ -52,7 +56,11 @@ class ModelPicker(ModelSelector):
         preds = self.dataset.preds.argmax(dim=2).transpose(0, 1)  # (N, H)
         preds_unlabeled = preds[self.d_u_idxs]
 
+        mask = self._disagreement_mask[self.d_u_idxs]
         entropies = self.compute_entropies(preds_unlabeled, self.posterior, self.H, self.C, self.gamma)
+        if mask.any():
+            entropies = entropies.clone()
+            entropies[~mask] = float('inf')
 
         min_val = torch.min(entropies)
         loc_i_stars = torch.nonzero(entropies == min_val).flatten()
