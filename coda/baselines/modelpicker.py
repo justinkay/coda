@@ -1,7 +1,6 @@
 import torch
 from coda.base import ModelSelector
 
-# best epsilons found by grid search in the original Model Selector repo
 TASK_EPS = {
     'real_clipart': 0.36,
     'real_painting': 0.46,
@@ -33,8 +32,6 @@ TASK_EPS = {
 
 
 class ModelPicker(ModelSelector):
-    """Implementation of Model Picker from the Model Selector repository."""
-
     def __init__(self, dataset, epsilon=0.46):
         self.dataset = dataset
         self.device = dataset.preds.device
@@ -42,19 +39,15 @@ class ModelPicker(ModelSelector):
 
         self.epsilon = float(epsilon)
         self.gamma = (1.0 - self.epsilon) / self.epsilon
-
-        # uniform prior over models
         self.posterior = torch.ones(self.H, device=self.device) / self.H
 
-        # bookkeeping
         self.d_l_idxs = []
         self.d_l_ys = []
         self.d_u_idxs = list(range(self.N))
         self.correct_counts = torch.zeros(self.H, dtype=torch.long, device=self.device)
 
-        self.stochastic = True  # ties are broken randomly
+        self.stochastic = True
 
-    # Lines 20-51 in the original implementation
     def get_next_item_to_label(self):
         preds = self.dataset.preds.argmax(dim=2).transpose(0, 1)  # (N, H)
         preds_unlabeled = preds[self.d_u_idxs]
@@ -67,18 +60,6 @@ class ModelPicker(ModelSelector):
         chosen_idx = self.d_u_idxs[i_star]
         return chosen_idx, 1.0 / float(len(self.d_u_idxs))
 
-    # Lines 43-50 + posterior update from lines 75-80
-    def add_label(self, chosen_idx, true_class, selection_prob=None):
-        self.d_u_idxs.remove(chosen_idx)
-        self.d_l_idxs.append(chosen_idx)
-        self.d_l_ys.append(true_class)
-
-        preds = self.dataset.preds[:, chosen_idx].argmax(dim=1)
-        self.correct_counts += (preds == true_class).long()
-
-        self.posterior = self.update_posterior(self.posterior, preds, true_class, self.gamma)
-
-    # Lines 53-71 from the reference implementation
     def compute_entropies(self, predictions_unlabeled, posterior, num_models, num_classes, gamma):
         num_unlabeled = predictions_unlabeled.shape[0]
         posteriors_replicated = posterior.unsqueeze(0).expand(num_unlabeled, num_models)
@@ -93,7 +74,16 @@ class ModelPicker(ModelSelector):
             entropies += conditional / num_classes
         return entropies
 
-    # Lines 75-80 in the reference implementation
+    def add_label(self, chosen_idx, true_class, selection_prob=None):
+        self.d_u_idxs.remove(chosen_idx)
+        self.d_l_idxs.append(chosen_idx)
+        self.d_l_ys.append(true_class)
+
+        preds = self.dataset.preds[:, chosen_idx].argmax(dim=1)
+        self.correct_counts += (preds == true_class).long()
+
+        self.posterior = self.update_posterior(self.posterior, preds, true_class, self.gamma)
+
     def update_posterior(self, posterior, predictions_i, oracle_i, gamma):
         agreements = (predictions_i == oracle_i).float()
         next_post = posterior * (gamma ** agreements)
