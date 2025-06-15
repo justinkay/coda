@@ -5,7 +5,6 @@ import numpy as np
 import torch
 from tqdm import tqdm
 import os
-from torchmetrics import Accuracy
 
 from coda import CODA
 from coda.baselines import IID, ActiveTesting, VMA, ModelPicker, Uncertainty
@@ -34,7 +33,6 @@ def parse_args():
     parser.add_argument("--data-dir", default='data')
 
     # benchmarking settings
-    parser.add_argument("--acc", help="Accuracy fn. Options specific to dataset, see main.py.", default="acc")
     parser.add_argument("--iters", type=int, default=100)
     parser.add_argument("--seeds", type=int, default=5) # how many seeds to use - one experiment per seed
     parser.add_argument("--force-rerun", action="store_true", help="Overwrite existing runs.")
@@ -120,9 +118,8 @@ def main():
     dataset = Dataset(os.path.join(args.data_dir, args.task + ".pt"), device=device)
 
     # Create oracle
-    accuracy_fn = Accuracy(task="multiclass", num_classes=126, average="micro") # TODO
     loss_fn = LOSS_FNS[args.loss]
-    oracle = Oracle(dataset, loss_fn=loss_fn, accuracy_fn=accuracy_fn)
+    oracle = Oracle(dataset, loss_fn=loss_fn)
     
     ## Model selection loop
     # create mlflow 'experiment' (= dataset/task)

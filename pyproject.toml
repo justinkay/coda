@@ -14,7 +14,6 @@ dependencies = [
     "torch",
     "tqdm",
     "numpy",
-    "torchmetrics"
 ]
 
 [project.scripts]
