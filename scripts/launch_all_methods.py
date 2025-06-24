@@ -3,7 +3,10 @@ import os
 import subprocess
 import mlflow
 
-mlflow.set_tracking_uri('sqlite:///coda.sqlite')
+# warning: database lock issues can occur if using db for logging
+USE_DB = False
+if USE_DB:
+    mlflow.set_tracking_uri('sqlite:///coda.sqlite')
 
 
 def seed_run_status(task, method, seed):

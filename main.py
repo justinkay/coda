@@ -11,11 +11,10 @@ from coda.baselines import IID, ActiveTesting, VMA, ModelPicker, Uncertainty
 from coda.datasets import Dataset
 from coda.options import LOSS_FNS
 from coda.oracle import Oracle
-from logging_util import plot_bar
 
-DEBUG_VIZ = True
-
-mlflow.set_tracking_uri('sqlite:///coda.sqlite')
+USE_DB = False
+if USE_DB:
+    mlflow.set_tracking_uri('sqlite:///coda.sqlite')
 
 def seed_all(seed):
     random.seed(seed)
@@ -43,7 +42,7 @@ def parse_args():
     parser.add_argument("--method", help="{ 'iid', 'beta', 'activetesting', 'vma' }", default='iid')
     parser.add_argument("--q", default="eig", help="{ 'iid', 'eig', 'l1', 'weighted_l1', 'max_regret', 'reduce_regret_local', 'reduce_regret_global' }")
     parser.add_argument("--prefilter-fn", default='disagreement', help="{ None, 'disagreement', 'iid' }")
-    parser.add_argument("--prefilter-n", type=int, default=0)
+    parser.add_argument("--prefilter-n", type=int, default=2500)
     parser.add_argument("--epsilon", type=float, default=0.0)
     parser.add_argument("--prior-source", default="ens-exp", help="{ 'ens-exp', 'ens-01', 'ds', 'ens-soft-01' }")
     parser.add_argument("--item-priors", default='ens', help="{ 'none', 'ens', bma-adaptive' }")
@@ -75,18 +74,16 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
         selector = VMA(dataset, loss_fn)
     elif args.method == 'model_picker':
         from coda.baselines.modelpicker import TASK_EPS
-        if args.task not in TASK_EPS.keys():
+        if args.task in TASK_EPS.keys():
+            selector = ModelPicker(dataset, epsilon=TASK_EPS[args.task])
+        else:
             print(args.task, "not in TASK_EPS; using default")
-        epsilon = args.epsilon if args.epsilon > 0.0 else TASK_EPS[args.task]
-        selector = ModelPicker(dataset, 
-                               epsilon=epsilon,
-                               prior_source=args.prior_source,
-                               item_prior_source=args.item_priors)
+            selector = ModelPicker(dataset)
     else:
         raise ValueError(args.method + " is not a supported method.")
 
     # Get prior regret
-    best_model_idx_pred = selector.get_best_model_prediction(step=0)# TODO CODA HACK STEP
+    best_model_idx_pred = selector.get_best_model_prediction()
     regret_loss = true_losses[best_model_idx_pred] - best_loss
     print("Regret at 0:", regret_loss)
 
@@ -94,10 +91,10 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
     cumulative_regret_loss = 0
     for m in tqdm(range(args.iters)):
         # select item, label, select model
-        chosen_idx, selection_prob = selector.get_next_item_to_label(step=m+1) # TODO CODA HACK STEP
+        chosen_idx, selection_prob = selector.get_next_item_to_label()
         true_class = oracle(chosen_idx)
         selector.add_label(chosen_idx, true_class, selection_prob)
-        best_model_idx_pred = selector.get_best_model_prediction(step=m+1) # TODO CODA HACK STEP
+        best_model_idx_pred = selector.get_best_model_prediction()
 
         # compute and log metrics
         regret_loss = true_losses[best_model_idx_pred] - best_loss

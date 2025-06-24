@@ -1,35 +1,38 @@
 import torch
 from coda.base import ModelSelector
 
-TASK_EPS = {
-    'real_clipart': 0.36,
-    'real_painting': 0.46,
-    'real_sketch': 0.48,
-    'sketch_real': 0.49,
-    'sketch_clipart': 0.36,
-    'sketch_painting': 0.45,
-    'clipart_painting': 0.44,
-    'clipart_real': 0.37,
-    'clipart_sketch': 0.47,
-    'painting_sketch': 0.49,
-    'painting_real': 0.36,
-    'painting_clipart': 0.40,
-    'iwildcam': 0.49,
-    'civilcomments': 0.43,
-    'fmow': 0.38,
-    'camelyon': 0.35,
-    'imagenet_v2_matched-frequency': 0.48,
-    'cifar10_4070': 0.35,
-    'cifar10_5592': 0.35,
-    'pacs': 0.45,
-    'glue/cola': 0.37,
-    'glue/mnli': 0.37,
-    'glue/qnli': 0.40,
-    'glue/qqp': 0.38,
-    'glue/rte': 0.42,
-    'glue/sst2': 0.41,
-}
 
+TASK_EPS = {
+    # from original paper
+    'imagenet_v2_matched-frequency': 0.48,
+    'cifar10_4070': 0.47,
+    'cifar10_5592': 0.47,
+    'pacs': 0.45,
+    'glue/cola': 0.45,
+    'glue/mnli': 0.43,
+    'glue/qnli': 0.44,
+    'glue/qqp': 0.47,
+    'glue/rte': 0.39,
+    'glue/sst2': 0.36,
+    
+    # from our reproduction of their gridsearch
+    'real_clipart': 0.42,
+    'real_painting': 0.35,
+    'real_sketch': 0.45,
+    'sketch_real': 0.35,
+    'sketch_clipart': 0.35,
+    'sketch_painting': 0.37,
+    'clipart_painting': 0.45,
+    'clipart_real': 0.45,
+    'clipart_sketch': 0.43,
+    'painting_sketch': 0.39,
+    'painting_real': 0.44,
+    'painting_clipart': 0.39,
+    'iwildcam': 0.49,
+    'civilcomments': 0.46,
+    'fmow': 0.44,
+    'camelyon': 0.47,
+}
 
 class ModelPicker(ModelSelector):
     def __init__(self, dataset, epsilon=0.46):

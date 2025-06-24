@@ -102,10 +102,14 @@ class ActiveTesting(IID):
         Returns the index of the model with the lowest average loss (risk).
         Ties are broken randomly.
         """
-        risk = self.get_risk_estimates()
-        best_model_risk, best_model_idx_pred = torch.min(risk, dim=0)
-        ties = (risk == best_model_risk)
-        if ties.sum() > 1:
-            idxs = torch.nonzero(ties, as_tuple=True)[0]
-            best_model_idx_pred = idxs[torch.randperm(len(idxs))[0]]
-        return best_model_idx_pred
+        if len(self.losses):
+            risk = self.get_risk_estimates()
+            best_model_risk, best_model_idx_pred = torch.min(risk, dim=0)
+            ties = (risk == best_model_risk)
+            if ties.sum() > 1:
+                idxs = torch.nonzero(ties, as_tuple=True)[0]
+                best_model_idx_pred = idxs[torch.randperm(len(idxs))[0]]
+            return best_model_idx_pred
+        else: 
+            idxs = torch.arange(self.surrogate.preds.shape[0], device=self.surrogate.device)
+            return random.choice(idxs)

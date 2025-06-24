@@ -308,6 +308,7 @@ class CODA(ModelSelector):
         self.unlabeled_idxs = list(range(self.N))
         self.q_vals = []
         self.stochastic = False
+        self.step = 0
 
     # ---------------------
 
@@ -373,7 +374,7 @@ class CODA(ModelSelector):
         self.q_vals.append(selection_prob)
         self.unlabeled_idxs.remove(idx)
 
-    def get_best_model_prediction(self, step=None):
+    def get_best_model_prediction(self):
         H, C, _ = self.dirichlets.shape
         expanded = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, C, H, C, C)
         probs_c = _p_best_row_mixture_batched(expanded,
@@ -383,7 +384,9 @@ class CODA(ModelSelector):
         if torch.isnan(p_best).any():
             raise ValueError("NaN in posterior")
         
-        if step is not None:
-            mlflow.log_image(plot_bar(p_best), key="PBest", step=step)
+        mlflow.log_image(plot_bar(p_best), key="PBest", step=self.step)
+
+        # track how many times we've done this
+        self.step += 1 
 
         return torch.argmax(p_best)

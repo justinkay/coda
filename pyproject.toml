@@ -14,6 +14,7 @@ dependencies = [
     "torch",
     "tqdm",
     "numpy",
+    "matplotlib<3.10" # for 'tostring_rgb' method to plot to mlflow
 ]
 
 [project.scripts]
