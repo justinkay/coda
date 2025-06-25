@@ -7,6 +7,11 @@ from ..ensemble import Ensemble
 
 
 class ActiveTesting(IID):
+    """
+    From Kossen et al. (2021).
+    Surrogate is an ensemble of all model candidates. 
+    Acq fn is expected loss naively summed over all model candidates.
+    """
     def __init__(self, dataset, loss_fn):
         super().__init__(dataset, loss_fn)
 
@@ -34,9 +39,9 @@ class ActiveTesting(IID):
         # Get the surrogate's probability for the predicted classes
         y_star_probs = pi_y[torch.arange(pi_y.shape[0]), pred_classes]
         
-        # Compute the acquisition score
-        acquisition_scores = 1 - y_star_probs # (H, N)
-        acquisition_scores = acquisition_scores.sum(dim=0)[self.d_u_idxs]
+        # Sum acquisition scores across all models for model selection
+        acquisition_scores = 1 - y_star_probs # (H, N) - loss for each model on each point
+        acquisition_scores = acquisition_scores.sum(dim=0)[self.d_u_idxs]  # Sum across models
         acquisition_scores /= acquisition_scores.sum()
 
         chosen_idx = random.choices(self.d_u_idxs, weights=acquisition_scores.cpu().numpy().tolist())[0]
@@ -48,12 +53,16 @@ class ActiveTesting(IID):
         """
         Compute the LURE weights (v_m) for each sampled point based on the current state.
         This is called after adding a new observation to update the weights.
+        
+        LURE formula from Farquhar et al. (2021):
+        v_m = 1 + (N-M)/(N-m) * (1/((N-m+1)*q_m) - 1)
+        where m is 1-indexed in the formula
         """
         vs = []
         for m in range(self.M):
             q = self.qs[m]
-            m = m + 1 # M is 1-indexed when computing v
-            v = 1 + ( (self.N - self.M) / (self.N - m) ) * (1 / ((self.N - m + 1) * q) - 1)
+            m_idx = m + 1  # Convert to 1-indexed for formula
+            v = 1 + ( (self.N - self.M) / (self.N - m_idx) ) * (1 / ((self.N - m_idx + 1) * q) - 1)
             vs.append(v)
         return vs
 
@@ -64,8 +73,6 @@ class ActiveTesting(IID):
 
         # Compute weighted losses: w_m = v_m * L_m
         weighted_losses = vs * losses  # Shape (H, M)
-        # TESTING: IGNORE VS
-        # weighted_losses = losses
 
         # Compute LURE estimates (mean of weighted losses)
         lure_estimates = weighted_losses.mean(dim=1)  # Shape (H,)
