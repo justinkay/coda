@@ -74,7 +74,6 @@ def create_confusion_matrices(true_labels: torch.Tensor,
     else:
         raise ValueError(mode)
 
-    preds = F.one_hot(model_predictions.argmax(-1), C).float()
     conf = torch.einsum('nc, hnj -> hcj', true_one_hot, preds)
     return conf / conf.sum(-1, keepdim=True).clamp_min(1e-6)
 
