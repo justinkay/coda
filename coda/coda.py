@@ -260,9 +260,8 @@ class CODA(ModelSelector):
                  prefilter_n=0,
                  epsilon=0.0,
                  base_prior="diag",
-                 temperature=1.0,
                  alpha=0.9,
-                 learning_rate_ratio=0.01
+                 learning_rate=0.01
                  ):
         self.dataset = dataset
         self.device = dataset.preds.device
@@ -274,9 +273,9 @@ class CODA(ModelSelector):
         self.base_prior = base_prior
 
         # hyperparams
-        self.base_strength = alpha / temperature
-        self.prior_strength = (1 - alpha) / temperature
-        self.update_strength = learning_rate_ratio / temperature
+        self.base_strength = alpha
+        self.prior_strength = (1 - alpha)
+        self.update_strength = learning_rate
 
         # initialise Dirichlets
         ens_pred = Ensemble(dataset.preds).get_preds().argmax(-1)
@@ -302,9 +301,8 @@ class CODA(ModelSelector):
                    prefilter_fn=args.prefilter_fn,
                    prefilter_n=args.prefilter_n,
                    epsilon=args.epsilon,
-                   temperature=args.temperature,
                    alpha=args.alpha,
-                   learning_rate_ratio=args.learning_rate_ratio,
+                   learning_rate=args.learning_rate,
                    base_prior=args.base_prior)
 
     def _prefilter(self, idxs):
