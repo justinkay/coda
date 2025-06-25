@@ -6,7 +6,7 @@ import random
 import mlflow
 
 from coda.base import ModelSelector
-from .surrogates import Ensemble
+from .ensemble import Ensemble
 
 _DEBUG = True
 from .logging_util import plot_bar
@@ -61,10 +61,19 @@ def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
 
 
 def create_confusion_matrices(true_labels: torch.Tensor,
-                              model_predictions: torch.Tensor) -> torch.Tensor:
+                              model_predictions: torch.Tensor,
+                              mode='hard') -> torch.Tensor:
     H, N, C = model_predictions.shape
     dev = model_predictions.device
     true_one_hot = F.one_hot(true_labels, C).float().to(dev)
+
+    if mode == 'hard':
+        preds = F.one_hot(model_predictions.argmax(-1), C).float()
+    elif mode == 'soft':
+        preds = model_predictions
+    else:
+        raise ValueError(mode)
+
     preds = F.one_hot(model_predictions.argmax(-1), C).float()
     conf = torch.einsum('nc, hnj -> hcj', true_one_hot, preds)
     return conf / conf.sum(-1, keepdim=True).clamp_min(1e-6)
@@ -272,7 +281,7 @@ class CODA(ModelSelector):
 
         # initialise Dirichlets
         ens_pred = Ensemble(dataset.preds).get_preds().argmax(-1)
-        soft_conf = create_confusion_matrices(ens_pred, dataset.preds, 'soft')
+        soft_conf = create_confusion_matrices(ens_pred, dataset.preds, mode='soft')
         self.dirichlets = initialize_dirichlets(soft_conf,
                                                 self.prior_strength,
                                                 base_strength=self.base_strength,
