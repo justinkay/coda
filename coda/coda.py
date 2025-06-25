@@ -174,29 +174,28 @@ def _p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
                                 pi: torch.Tensor,
                                 num_points: int = 1024) -> torch.Tensor:
     """
-    updated_dirichlet : (B, C, H, C, C)
-    pi                : (C,)
+    updated_dirichlet: (B, C, H, C, C)
+    pi: (C,)
 
-    Returns
-    -------
-    prob_best  : (B, C, H)  --  P(best | item b, true class = c)
+    Returns:
+        prob_best: (B, C, H),  P(best | item b, true class = c)
     """
 
     B, C, H = updated_dirichlet.shape[:3]
     dev = updated_dirichlet.device
 
-    # ----  α_cc  ------------------------------------------------------
+    # α_cc
     # diag  (B, C, H, C)
     diag_full = torch.diagonal(updated_dirichlet, dim1=-2, dim2=-1)
     idx = torch.arange(C, device=dev).view(1, C, 1, 1)               # (1,C,1,1)
     alpha_cc = torch.take_along_dim(diag_full, idx, dim=-1).squeeze(-1)   # (B,C,H)
 
-    # ----  β_cc -------------------------------------------------------
+    # β_cc
     row_sum  = updated_dirichlet.sum(-1)                              # (B,C,H,C)
     beta_cc  = (torch.take_along_dim(row_sum, idx, dim=-1)
                 .squeeze(-1) - alpha_cc)                              # (B,C,H)
 
-    # ----  integrate Beta PDFs  --------------------------------------
+    # integrate Beta PDFs
     # compute_p_best_beta_batched expects (N,C,H); here N == B
     prob_best_bch = compute_p_best_beta_batched(alpha_cc,
                                                 beta_cc,
@@ -218,7 +217,7 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
 
     candidates = torch.tensor(candidate_ids, device=device)
 
-    # -------- current posterior entropy --------------------------------
+    # compute current entropy
     H, C_dir, _ = dirichlet_alphas.shape
     expanded = dirichlet_alphas.unsqueeze(0).unsqueeze(0).expand(1, C_dir, H, C_dir, C_dir)
     current_probs_c = _p_best_row_mixture_batched(expanded, pi,
@@ -235,10 +234,6 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
         updated = batch_update_dirichlet_for_item(dirichlet_alphas,
                                                   preds,
                                                   update_weight)
-
-        # --------------------------------------------------------------
-        #   Compute posterior probabilities using the row-mixture method
-        # --------------------------------------------------------------
         updated_probs = _p_best_row_mixture_batched(updated, pi,
                                                     num_points)   # (B,C,H)
 
@@ -277,7 +272,7 @@ class CODA(ModelSelector):
         self.prior_strength = (1 - alpha)
         self.update_strength = learning_rate
 
-        # initialise Dirichlets
+        # initialise dirichlets
         ens_pred = Ensemble(dataset.preds).get_preds()
         ens_pred_hard = ens_pred.argmax(-1)  # pseudo labels
         soft_conf = create_confusion_matrices(ens_pred_hard, dataset.preds, mode='soft')
