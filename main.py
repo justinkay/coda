@@ -50,7 +50,7 @@ def parse_args():
     # CODA settings
     parser.add_argument("--base-prior", default="diag")
     parser.add_argument("--alpha", default=0.9, type=float)
-    parser.add_argument("--learning-rate-ratio", default=0.01, type=float)
+    parser.add_argument("--learning-rate", default=0.01, type=float)
 
     return parser.parse_args()
 

@@ -278,8 +278,9 @@ class CODA(ModelSelector):
         self.update_strength = learning_rate
 
         # initialise Dirichlets
-        ens_pred = Ensemble(dataset.preds).get_preds().argmax(-1)
-        soft_conf = create_confusion_matrices(ens_pred, dataset.preds, mode='soft')
+        ens_pred = Ensemble(dataset.preds).get_preds()
+        ens_pred_hard = ens_pred.argmax(-1)  # pseudo labels
+        soft_conf = create_confusion_matrices(ens_pred_hard, dataset.preds, mode='soft')
         self.dirichlets = initialize_dirichlets(soft_conf,
                                                 self.prior_strength,
                                                 base_strength=self.base_strength,
