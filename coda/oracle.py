@@ -1,6 +1,3 @@
-import torch
-
-
 class Oracle:
     def __init__(self, dataset, loss_fn=None):
         self.dataset = dataset

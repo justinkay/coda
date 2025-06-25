@@ -14,11 +14,3 @@ class ModelSelector:
 
     def get_best_model_prediction(self):
         pass
-    
-    # optional
-    def get_risk_estimates(self):
-        pass
-    
-    # optional
-    def get_additional_to_log(self):
-        pass

@@ -11,16 +11,14 @@ from .surrogates import Ensemble
 _DEBUG = True
 from .logging_util import plot_bar
 
-# ---------------------------------------------------------------------
-# utilities
-# ---------------------------------------------------------------------
 
 def distribution_entropy(prob: torch.Tensor, eps=1e-12) -> torch.Tensor:
     prob_clamped = prob.clamp(min=eps)
     return -(prob_clamped * prob_clamped.log2()).sum()
 
+
 def _check(t: torch.Tensor, name: str, *, raise_err=True):
-    """Assert tensor has no NaN/±Inf and print useful stats."""
+    # for debugging - check t for infs/nans
     if _DEBUG:
         bad = ~torch.isfinite(t)
         if bad.any():
@@ -30,9 +28,11 @@ def _check(t: torch.Tensor, name: str, *, raise_err=True):
             if raise_err:
                 raise RuntimeError(msg)
             print(msg)
-    return t  # so you can inline it
+    return t
+
 
 def _check_prob(p: torch.Tensor, name="prob", eps=1e-12):
+    # check if p is a valid probability distribution
     if _DEBUG:
         _check(p, name)
         if (p < -eps).any():
@@ -44,35 +44,28 @@ def _check_prob(p: torch.Tensor, name="prob", eps=1e-12):
             print(f"[WARN] {name} rows not normalised: min sum={s.min():.4f}, "
                 f"max sum={s.max():.4f}")
 
-# ---------------------------------------------------------------------
-# Dirichlet → Beta helpers
-# ---------------------------------------------------------------------
 
 def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
-    """Row-wise conversion: returns α_cc, β_cc  (H,C)."""
+    """
+    Get parameters for beta distributions representing the diagonal.
+
+    Args:
+        alpha_dirichlet: shape TODO
+    Returns:
+        alpha_cc, beta_cc: shape TODO
+    """
     H, C, _ = alpha_dirichlet.shape
     alpha_cc = alpha_dirichlet[:, torch.arange(C), torch.arange(C)]
     beta_cc  = alpha_dirichlet.sum(dim=2) - alpha_cc
     return alpha_cc, beta_cc
 
-# ---------------------------------------------------------------------
-# Confusion‑matrix helpers (unchanged)
-# ---------------------------------------------------------------------
 
 def create_confusion_matrices(true_labels: torch.Tensor,
-                              model_predictions: torch.Tensor,
-                              mode: str = 'hard') -> torch.Tensor:
+                              model_predictions: torch.Tensor) -> torch.Tensor:
     H, N, C = model_predictions.shape
     dev = model_predictions.device
     true_one_hot = F.one_hot(true_labels, C).float().to(dev)
-
-    if mode == 'hard':
-        preds = F.one_hot(model_predictions.argmax(-1), C).float()
-    elif mode == 'soft':
-        preds = model_predictions
-    else:
-        raise ValueError(mode)
-
+    preds = F.one_hot(model_predictions.argmax(-1), C).float()
     conf = torch.einsum('nc, hnj -> hcj', true_one_hot, preds)
     return conf / conf.sum(-1, keepdim=True).clamp_min(1e-6)
 
@@ -110,9 +103,6 @@ def compute_ensemble_marginal(confusion_matrices: torch.Tensor,
     marg = adjusted.sum((0, 1))
     return marg / (confusion_matrices.shape[0] * model_predictions.shape[1])
 
-# ---------------------------------------------------------------------
-# Batched Dirichlet update helper
-# ---------------------------------------------------------------------
 
 def batch_update_dirichlet_for_item(dirichlet_alphas: torch.Tensor,
                                     worker_preds: torch.Tensor,
@@ -124,9 +114,6 @@ def batch_update_dirichlet_for_item(dirichlet_alphas: torch.Tensor,
         updated[:, c, :, c, :] += updates[:, c, :, :]
     return updated
 
-# ---------------------------------------------------------------------
-# Beta integration on batches 
-# ---------------------------------------------------------------------
 
 def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
                                 beta_batch:  torch.Tensor,
@@ -174,9 +161,7 @@ def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
 
     return prob_out[0] if single_item else prob_out
 
-# ---------------------------------------------------------------------
-# fast row-mixture helper  (vectorised, no Python loops)
-# ---------------------------------------------------------------------
+
 def _p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
                                 pi: torch.Tensor,
                                 num_points: int = 1024) -> torch.Tensor:
@@ -210,9 +195,6 @@ def _p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
                                                 num_points=num_points)  # (B,C,H)
     return prob_best_bch
 
-# ---------------------------------------------------------------------
-# Expected-Information-Gain with selectable Beta / mixture posterior
-# ---------------------------------------------------------------------
 
 def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
                           worker_preds: torch.Tensor,
@@ -263,13 +245,8 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
     return torch.cat(eig_chunks)                                  # (N_candidates,)
 
 
-# ---------------------------------------------------------------------
-# CODA model-selector class
-# ---------------------------------------------------------------------
-
 class CODA(ModelSelector):
     def __init__(self, dataset,
-                 prior_source="ens",
                  q='eig',
                  prefilter_fn='disagreement',
                  prefilter_n=0,
@@ -288,7 +265,7 @@ class CODA(ModelSelector):
         self.epsilon = epsilon
         self.base_prior = base_prior
 
-        # hyper‐params → strengths
+        # hyperparams
         self.base_strength = alpha / temperature
         self.prior_strength = (1 - alpha) / temperature
         self.update_strength = learning_rate_ratio / temperature
@@ -310,12 +287,9 @@ class CODA(ModelSelector):
         self.stochastic = False
         self.step = 0
 
-    # ---------------------
-
     @classmethod
     def from_args(cls, dataset, args):
         return cls(dataset,
-                   prior_source=args.prior_source,
                    q=args.q,
                    prefilter_fn=args.prefilter_fn,
                    prefilter_n=args.prefilter_n,
@@ -324,8 +298,6 @@ class CODA(ModelSelector):
                    alpha=args.alpha,
                    learning_rate_ratio=args.learning_rate_ratio,
                    base_prior=args.base_prior)
-
-    # ---------------------
 
     def _prefilter(self, idxs):
         if self.prefilter_fn == 'disagreement':

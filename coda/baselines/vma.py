@@ -1,6 +1,5 @@
 import random
 import torch
-import torch.nn.functional as F
 
 from coda.baselines.activetesting import ActiveTesting
 
