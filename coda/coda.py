@@ -137,7 +137,7 @@ def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
     return prob_out[0] if single_item else prob_out
 
 
-def _p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
+def p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
                                 pi: torch.Tensor,
                                 num_points: int = 1024) -> torch.Tensor:
     """
@@ -145,7 +145,7 @@ def _p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
     pi: (C,)
 
     Returns:
-        prob_best: (B, C, H),  P(best | item b, true class = c)
+        prob_best: (B, H),  P(best | item b) - marginal probabilities
     """
 
     B, C, H = updated_dirichlet.shape[:3]
@@ -167,7 +167,11 @@ def _p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
     prob_best_bch = compute_p_best_beta_batched(alpha_cc,
                                                 beta_cc,
                                                 num_points=num_points)  # (B,C,H)
-    return prob_best_bch
+    
+    # Convert conditional to marginal probabilities using pi
+    # expected P(best | item b) = Σ_c expected P(best | item b, class=c) * P(class=c)
+    marginal_probs = (prob_best_bch * pi.view(1, C, 1)).sum(1)  # (B,H)
+    return marginal_probs
 
 
 def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
@@ -187,9 +191,7 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
     # compute current entropy
     H, C_dir, _ = dirichlet_alphas.shape
     expanded = dirichlet_alphas.unsqueeze(0).unsqueeze(0).expand(1, C_dir, H, C_dir, C_dir)
-    current_probs_c = _p_best_row_mixture_batched(expanded, pi,
-                                                 num_points=num_points)  # (1,C,H)
-    current_probs = (current_probs_c * pi.view(1, C_dir, 1)).sum(1).squeeze(0)
+    current_probs = p_best_row_mixture_batched(expanded, pi, num_points=num_points).squeeze(0)  # (H,)
     H_current = distribution_entropy(current_probs)
 
     eig_chunks = []
@@ -197,20 +199,17 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
         ids   = candidates[s:s + chunk_size]              # (B,)
         preds = F.one_hot(worker_preds[ids].argmax(-1), C).float()  # (B,H,C)
 
-        # (B,C,H,C,C)
-        updated = batch_update_dirichlet_for_item(dirichlet_alphas,
-                                                  preds,
-                                                  update_weight)
-        updated_probs = _p_best_row_mixture_batched(updated, pi,
-                                                    num_points)   # (B,C,H)
+        # all hypothetical updates at once
+        updated = batch_update_dirichlet_for_item(dirichlet_alphas, preds, update_weight) # (B,C,H,C,C)
+        updated_probs = p_best_row_mixture_batched(updated, pi, num_points)   # (B,H)
 
-        # entropy for each hypothetical class
+        # entropy for each hypothetical outcome
         p_clamped = updated_probs.clamp_min(1e-12)
-        H_updated = -(p_clamped * p_clamped.log2()).sum(-1)       # (B,C)
+        H_updated = -(p_clamped * p_clamped.log2()).sum(-1)       # (B,)
 
-        # expected IG  = Σ_c π_c·(H_current − H_updated_c)
-        eig_chunk = (H_current - H_updated) * pi
-        eig_chunks.append(eig_chunk.sum(1))                       # (B,)
+        # expected IG  = H_current − E[H_updated]
+        eig_chunk = H_current - H_updated                         # (B,)
+        eig_chunks.append(eig_chunk)                              # (B,)
 
     return torch.cat(eig_chunks)                                  # (N_candidates,)
 
@@ -318,9 +317,7 @@ class CODA(ModelSelector):
     def get_best_model_prediction(self):
         H, C, _ = self.dirichlets.shape
         expanded = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, C, H, C, C)
-        probs_c = _p_best_row_mixture_batched(expanded,
-                                              self.pi_hat)
-        p_best = (probs_c * self.pi_hat.view(1, C, 1)).sum(1).squeeze(0)
+        p_best = p_best_row_mixture_batched(expanded, self.pi_hat).squeeze(0)  # (H,)
         
         if torch.isnan(p_best).any():
             raise ValueError("NaN in posterior")
