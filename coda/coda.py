@@ -6,43 +6,9 @@ import random
 import mlflow
 
 from coda.base import ModelSelector
-from .ensemble import Ensemble
+from coda.util import Ensemble, distribution_entropy, _check, _check_prob, plot_bar
 
 _DEBUG = True
-from .logging_util import plot_bar
-
-
-def distribution_entropy(prob: torch.Tensor, eps=1e-12) -> torch.Tensor:
-    prob_clamped = prob.clamp(min=eps)
-    return -(prob_clamped * prob_clamped.log2()).sum()
-
-
-def _check(t: torch.Tensor, name: str, *, raise_err=True):
-    # for debugging - check t for infs/nans
-    if _DEBUG:
-        bad = ~torch.isfinite(t)
-        if bad.any():
-            msg = (f"[NUMERIC ERROR] {name} has {bad.sum()} bad values "
-                f"(NaN/Inf) out of {t.numel()} "
-                f"min={t.min().item():.3g}, max={t.max().item():.3g}")
-            if raise_err:
-                raise RuntimeError(msg)
-            print(msg)
-    return t
-
-
-def _check_prob(p: torch.Tensor, name="prob", eps=1e-12):
-    # check if p is a valid probability distribution
-    if _DEBUG:
-        _check(p, name)
-        if (p < -eps).any():
-            raise RuntimeError(f"{name} has negatives")
-        s = p.sum(-1)
-        if (torch.isnan(s) | torch.isinf(s)).any():
-            raise RuntimeError(f"{name} sum is nan/inf")
-        if ((s - 1).abs() > 1e-4).any():
-            print(f"[WARN] {name} rows not normalised: min sum={s.min():.4f}, "
-                f"max sum={s.max():.4f}")
 
 
 def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
@@ -102,6 +68,7 @@ def initialize_dirichlets(soft_confusion: torch.Tensor,
     elif base_prior == "empirical-bayes":
         base = 2 * soft_confusion.mean(0) + 1e-5
     base = base.unsqueeze(0).expand(H, C, C)
+
     return base + prior_strength * soft_confusion
 
 
@@ -148,23 +115,23 @@ def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
         b_flat = beta_batch[start:end].reshape(-1, H)
         logpdf = Beta(a_flat.reshape(-1), b_flat.reshape(-1)).log_prob(x)
         pdf = logpdf.exp().T.reshape(-1, H, num_points)         # B*C × H × P
-        _check(pdf, "pdf")
+        if _DEBUG: _check(pdf, "pdf")
 
         cdf = torch.zeros_like(pdf)
         for j in range(1, num_points):
             dx = x[j] - x[j-1]
             cdf[:, :, j] = cdf[:, :, j-1] + 0.5*(pdf[:, :, j] + pdf[:, :, j-1])*dx
-        _check(cdf, "cdf")
+        if _DEBUG: _check(cdf, "cdf")
 
         log_cdf = torch.log(cdf.clamp_min(eps))
         prod_excl = torch.exp(log_cdf.sum(1, keepdim=True) - log_cdf)
         integrand = pdf * prod_excl
-        _check(integrand, "integrand")
+        if _DEBUG: _check(integrand, "integrand")
 
         prob = torch.trapz(integrand, x.squeeze(), dim=2)
-        _check(prob, "Pbest(beta)") 
+        if _DEBUG: _check(prob, "Pbest(beta)") 
         prob = prob / prob.sum(-1, keepdim=True).clamp_min(eps)
-        _check_prob(prob, "Pbest(beta)-norm")
+        if _DEBUG: _check_prob(prob, "Pbest(beta) normalized")
         prob_out[start:end] = prob.reshape(end-start, C, H)
 
     return prob_out[0] if single_item else prob_out
@@ -280,7 +247,7 @@ class CODA(ModelSelector):
                                                 self.prior_strength,
                                                 base_strength=self.base_strength,
                                                 base_prior=self.base_prior)
-
+        # class marginal distribution
         self.pi_hat = compute_ensemble_marginal(self.dirichlets, dataset.preds)
         self.pi_hat = self.pi_hat / self.pi_hat.sum()
 
@@ -326,7 +293,7 @@ class CODA(ModelSelector):
         else:
             raise NotImplementedError(self.q)
 
-        if step is not None:
+        if step is not None and _DEBUG:
             mlflow.log_image(plot_bar(q_vals), key="EIG", step=step)
 
         best = q_vals.max()
@@ -358,7 +325,7 @@ class CODA(ModelSelector):
         if torch.isnan(p_best).any():
             raise ValueError("NaN in posterior")
         
-        mlflow.log_image(plot_bar(p_best), key="PBest", step=self.step)
+        if _DEBUG: mlflow.log_image(plot_bar(p_best), key="PBest", step=self.step)
 
         # track how many times we've done this
         self.step += 1 

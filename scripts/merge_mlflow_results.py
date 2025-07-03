@@ -12,6 +12,29 @@ from mlflow.tracking import MlflowClient
 import argparse
 import numpy as np
 from typing import Dict, List, Optional
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+def get_child_metrics_batch(client: MlflowClient, child_run_ids: List[str], metric_keys: List[str]) -> Dict[str, Dict[str, List]]:
+    """Batch fetch metrics for multiple child runs."""
+    def fetch_run_metrics(run_id):
+        run_metrics = {}
+        for metric in metric_keys:
+            try:
+                history = client.get_metric_history(run_id, metric)
+                run_metrics[metric] = [(point.step, point.value) for point in history]
+            except mlflow.exceptions.MlflowException:
+                run_metrics[metric] = []
+        return run_id, run_metrics
+    
+    all_metrics = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_run = {executor.submit(fetch_run_metrics, run_id): run_id for run_id in child_run_ids}
+        for future in as_completed(future_to_run):
+            run_id, metrics = future.result()
+            all_metrics[run_id] = metrics
+    
+    return all_metrics
 
 def aggregate_metrics(client: MlflowClient, metric_keys: Optional[List[str]] = None) -> None:
     """Compute step-wise means for metric_keys and log them to parent runs."""
@@ -19,76 +42,87 @@ def aggregate_metrics(client: MlflowClient, metric_keys: Optional[List[str]] = N
     if metric_keys is None:
         metric_keys = ["regret", "cumulative regret"]
     
-    # Iterate over every experiment
-    for exp in client.search_experiments():
+    # Get all experiments and runs in a single batch
+    experiments = client.search_experiments()
+    
+    for exp in experiments:
         exp_id = exp.experiment_id
         
-        # Pull all runs in this experiment
+        # Get all runs at once
         all_runs = mlflow.search_runs(
-            experiment_ids=[exp_id], output_format="pandas"
+            experiment_ids=[exp_id], output_format="pandas", max_results=5000
         )
         if all_runs.empty:
             continue
             
-        # Parent runs have no parentRunId tag (NaN in the dataframe)
+        # Separate parent and child runs
         if "tags.mlflow.parentRunId" in all_runs.columns:
             parent_mask = all_runs["tags.mlflow.parentRunId"].isna()
             parent_runs = all_runs[parent_mask]
+            child_runs = all_runs[~parent_mask]
         else:
-            # If no parentRunId column exists, all runs are parent runs
             parent_runs = all_runs
+            child_runs = all_runs.iloc[0:0]  # Empty dataframe
         
-        for _, parent_row in parent_runs.iterrows():
-            parent_run_id: str = parent_row["run_id"]
+        if child_runs.empty:
+            continue
             
-            # Child runs reference this parent via tag
-            child_runs = mlflow.search_runs(
-                experiment_ids=[exp_id],
-                filter_string=f"tags.mlflow.parentRunId = '{parent_run_id}'",
-                output_format="pandas",
-            )
-            if child_runs.empty:
+        # Group child runs by parent
+        parent_to_children = defaultdict(list)
+        for _, child_row in child_runs.iterrows():
+            parent_id = child_row["tags.mlflow.parentRunId"]
+            parent_to_children[parent_id].append(child_row["run_id"])
+        
+        # Process each parent and its children
+        for _, parent_row in parent_runs.iterrows():
+            parent_run_id = parent_row["run_id"]
+            child_run_ids = parent_to_children.get(parent_run_id, [])
+            
+            if not child_run_ids:
                 continue
                 
-            # Collector: {metric -> {step -> [values]}}
-            collector: Dict[str, Dict[int, List[float]]] = {
-                m: {} for m in metric_keys
-            }
+            # Batch fetch all metrics for all children
+            all_child_metrics = get_child_metrics_batch(client, child_run_ids, metric_keys)
             
-            for _, child_row in child_runs.iterrows():
-                run_id = child_row["run_id"]
-                for metric in metric_keys:
-                    try:
-                        history = client.get_metric_history(run_id, metric)
-                    except mlflow.exceptions.MlflowException:
-                        continue  # metric not found in this child
-                    for point in history:
-                        collector[metric].setdefault(point.step, []).append(point.value)
+            # Aggregate metrics by step
+            collector = defaultdict(lambda: defaultdict(list))
+            for run_id, run_metrics in all_child_metrics.items():
+                for metric, step_values in run_metrics.items():
+                    for step, value in step_values:
+                        collector[metric][step].append(value)
             
-            # Log aggregated means back to the parent run
+            # Log aggregated metrics in batches
+            batch_metrics = []
             for metric, step_dict in collector.items():
                 for step, values in step_dict.items():
-                    if not values:  # Skip empty value lists
+                    if not values:
                         continue
                     mean_val = float(np.mean(values))
                     std_val = float(np.std(values)) if len(values) > 1 else 0.0
-                    client.log_metric(
-                        parent_run_id,
-                        key=f"mean_{metric}",
-                        value=mean_val,
-                        step=step,
-                    )
-                    client.log_metric(
-                        parent_run_id,
-                        key=f"std_{metric}",
-                        value=std_val,
-                        step=step,
-                    )
+                    batch_metrics.extend([
+                        (f"mean_{metric}", mean_val, step),
+                        (f"std_{metric}", std_val, step)
+                    ])
                     print(
                         f"[Exp {exp.name}] parent {parent_run_id[:8]} | "
                         f"step {step} mean_{metric} = {mean_val:.6f} ± {std_val:.6f} "
                         f"(n={len(values)})"
                     )
+            
+            # Batch log metrics
+            for key, value, step in batch_metrics:
+                client.log_metric(parent_run_id, key=key, value=value, step=step)
+
+def copy_run_metrics_batch(source_client: MlflowClient, run_id: str, metric_keys: List[str]) -> Dict[str, List]:
+    """Batch copy all metrics for a single run."""
+    all_metrics = {}
+    for key in metric_keys:
+        try:
+            metric_history = source_client.get_metric_history(run_id, key)
+            all_metrics[key] = [(m.value, m.step, m.timestamp) for m in metric_history]
+        except:
+            all_metrics[key] = []
+    return all_metrics
 
 def merge_mlflow_runs():
     """Merge all mlruns_job_* directories into a single mlruns directory."""
@@ -103,17 +137,15 @@ def merge_mlflow_runs():
     job_dirs = glob.glob('mlruns_job_*')
     print(f"Found {len(job_dirs)} job directories to merge")
     
-    experiment_mapping = {}  # Map old experiment ID to new experiment ID
+    experiment_mapping = {}
     
     for job_dir in sorted(job_dirs):
         print(f"Processing {job_dir}...")
         
-        # Set up source client
         source_tracking_uri = f'file://{os.path.abspath(job_dir)}'
         source_client = MlflowClient(source_tracking_uri)
         
         try:
-            # Get all experiments from this job
             experiments = source_client.search_experiments()
             
             for exp in experiments:
@@ -129,77 +161,59 @@ def merge_mlflow_runs():
                 
                 experiment_mapping[exp.experiment_id] = dest_exp_id
                 
-                # Get all runs from this experiment
+                # Get all runs from this experiment at once
                 runs = source_client.search_runs(
                     experiment_ids=[exp.experiment_id],
-                    max_results=1000
+                    max_results=5000
                 )
                 
                 # Separate parent and child runs
-                parent_runs = []
-                child_runs = []
+                parent_runs = [r for r in runs if 'mlflow.parentRunId' not in r.data.tags]
+                child_runs = [r for r in runs if 'mlflow.parentRunId' in r.data.tags]
+                
+                # Get all unique metric keys upfront
+                all_metric_keys = set()
                 for run in runs:
-                    if 'mlflow.parentRunId' in run.data.tags:
-                        child_runs.append(run)
-                    else:
-                        parent_runs.append(run)
+                    all_metric_keys.update(run.data.metrics.keys())
+                all_metric_keys = list(all_metric_keys)
                 
-                # First pass: create parent runs
-                run_mapping = {}  # old_run_id -> new_run_id
+                run_mapping = {}
                 
+                # Copy parent runs with batch metric fetching
                 for run in parent_runs:
                     print(f"  Copying run: {run.info.run_name}")
-                    print(f"    Tags: {list(run.data.tags.keys())}")
-                    if 'mlflow.parentRunId' in run.data.tags:
-                        print(f"    Parent: {run.data.tags['mlflow.parentRunId']}")
                     
-                    # Check if this is a nested run
-                    parent_run_id = run.data.tags.get('mlflow.parentRunId')
-                    
-                    # Create new run in destination
                     with mlflow.start_run(
                         experiment_id=dest_exp_id,
                         run_name=run.info.run_name,
-                        nested=parent_run_id is not None
+                        nested=False
                     ) as new_run:
                         run_mapping[run.info.run_id] = new_run.info.run_id
                         
-                        # Copy parameters
+                        # Batch copy parameters
                         for key, value in run.data.params.items():
                             mlflow.log_param(key, value)
                         
-                        # Copy metrics
-                        for key, metric_list in run.data.metrics.items():
-                            # Get metric history
-                            metric_history = source_client.get_metric_history(
-                                run.info.run_id, key
-                            )
-                            for metric in metric_history:
-                                mlflow.log_metric(
-                                    key, 
-                                    metric.value, 
-                                    step=metric.step,
-                                    timestamp=metric.timestamp
-                                )
+                        # Batch copy metrics
+                        metrics_data = copy_run_metrics_batch(source_client, run.info.run_id, all_metric_keys)
+                        for key, metric_points in metrics_data.items():
+                            for value, step, timestamp in metric_points:
+                                mlflow.log_metric(key, value, step=step, timestamp=timestamp)
                         
-                        # Copy tags (no parent relationship for parent runs)
+                        # Copy non-system tags
                         for key, value in run.data.tags.items():
-                            if not key.startswith('mlflow.'):  # Skip system tags
+                            if not key.startswith('mlflow.'):
                                 mlflow.set_tag(key, value)
                 
-                # Second pass: create child runs
+                # Copy child runs
                 for run in child_runs:
                     print(f"  Copying child run: {run.info.run_name}")
                     parent_run_id = run.data.tags.get('mlflow.parentRunId')
                     
-                    # Find the corresponding parent in destination
                     if parent_run_id in run_mapping:
                         dest_parent_id = run_mapping[parent_run_id]
                         
-                        # Create nested run with explicit parent
-                        with mlflow.start_run(
-                            run_id=dest_parent_id
-                        ):
+                        with mlflow.start_run(run_id=dest_parent_id):
                             with mlflow.start_run(
                                 experiment_id=dest_exp_id,
                                 run_name=run.info.run_name,
@@ -207,24 +221,15 @@ def merge_mlflow_runs():
                             ) as new_run:
                                 run_mapping[run.info.run_id] = new_run.info.run_id
                                 
-                                # Copy parameters
+                                # Batch copy parameters and metrics
                                 for key, value in run.data.params.items():
                                     mlflow.log_param(key, value)
                                 
-                                # Copy metrics
-                                for key, metric_list in run.data.metrics.items():
-                                    metric_history = source_client.get_metric_history(
-                                        run.info.run_id, key
-                                    )
-                                    for metric in metric_history:
-                                        mlflow.log_metric(
-                                            key, 
-                                            metric.value, 
-                                            step=metric.step,
-                                            timestamp=metric.timestamp
-                                        )
+                                metrics_data = copy_run_metrics_batch(source_client, run.info.run_id, all_metric_keys)
+                                for key, metric_points in metrics_data.items():
+                                    for value, step, timestamp in metric_points:
+                                        mlflow.log_metric(key, value, step=step, timestamp=timestamp)
                                 
-                                # Copy tags (excluding system tags)
                                 for key, value in run.data.tags.items():
                                     if not key.startswith('mlflow.'):
                                         mlflow.set_tag(key, value)

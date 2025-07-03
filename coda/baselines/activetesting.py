@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 
 from coda.baselines.iid import IID
-from ..ensemble import Ensemble
+from coda.util import Ensemble
 
 
 class ActiveTesting(IID):
