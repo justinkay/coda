@@ -5,7 +5,7 @@ import mlflow
 from mlflow.tracking import MlflowClient
 
 # Use same configuration as main.py
-USE_DB = False
+USE_DB = True
 if USE_DB:
     mlflow.set_tracking_uri('sqlite:///coda.sqlite')
 

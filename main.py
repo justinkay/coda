@@ -12,7 +12,7 @@ from coda.datasets import Dataset
 from coda.options import LOSS_FNS
 from coda.oracle import Oracle
 
-USE_DB = False
+USE_DB = True
 if USE_DB:
     mlflow.set_tracking_uri('sqlite:///coda.sqlite')
 

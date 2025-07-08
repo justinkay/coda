@@ -6,7 +6,7 @@ import time
 import re
 
 # warning: database lock issues can occur if using db for logging
-USE_DB = False
+USE_DB = True
 if USE_DB:
     mlflow.set_tracking_uri('sqlite:///coda.sqlite')
 
@@ -58,6 +58,7 @@ def launch_job_with_tracking(cmd, job_queue, running_jobs):
     print('Launching:', ' '.join(cmd))
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
         # Give the job a moment to start and get a SLURM job ID
         time.sleep(2)
         
@@ -113,7 +114,7 @@ def check_job_completion(running_jobs):
 def main():
     p = argparse.ArgumentParser(description='Launch all methods for all tasks')
     p.add_argument('--pred-dir', default='data', help='Directory containing prediction tensors')
-    p.add_argument('--methods', default='iid,activetesting,vma,model_picker,uncertainty,coda',
+    p.add_argument('--methods', default='iid,activetesting,vma,model_picker,uncertainty,coda,coda-lr=0.001',
                    help='Comma-separated list of methods to run')
     p.add_argument('--seeds', type=int, default=5, help='Maximum number of seeds')
     p.add_argument('--max-concurrent-jobs', type=int, default=16, 
@@ -133,11 +134,6 @@ def main():
         '--gpus-per-node', '1'
     ]
 
-    # Check what's already completed
-    completed_runs = check_completed_runs()
-    print(f"Found {len(completed_runs)} completed runs in merged results")
-    
-    # Build job queue
     job_queue = []
     for task in tasks:
         for method in methods:
@@ -151,6 +147,12 @@ def main():
                 '--data-dir', args.pred_dir,
                 '--seeds', str(args.seeds)
             ]
+
+            # allow modifying coda hparams through this script
+            lr_match = re.search(r'coda-lr=([0-9.]+)', method)
+            if lr_match:
+                cmd.extend(['--learning-rate', lr_match.group(1)])
+
             job_queue.append(cmd)
     
     if not job_queue:
