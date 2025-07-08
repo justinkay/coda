@@ -12,11 +12,9 @@ from coda.datasets import Dataset
 from coda.options import LOSS_FNS
 from coda.oracle import Oracle
 
-# Use separate tracking directory per job to avoid conflicts
-import time
-job_id = os.environ.get('SLURM_JOB_ID', f'local_{int(time.time())}')
-tracking_dir = f'mlruns_job_{job_id}'
-mlflow.set_tracking_uri(f'file://{os.path.abspath(tracking_dir)}')
+USE_DB = False
+if USE_DB:
+    mlflow.set_tracking_uri('sqlite:///coda.sqlite')
 
 def seed_all(seed):
     random.seed(seed)

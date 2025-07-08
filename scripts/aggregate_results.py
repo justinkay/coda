@@ -9,8 +9,8 @@ the parent run (metric name prefixed with ``mean_``).
 Usage
 -----
 ```
-python aggregate.py                # aggregates "regret" & "cumulative regret"
-python aggregate.py metric1 metric2  # custom metric list
+python aggregate_results.py                  # aggregates "regret" & "cumulative regret"
+python aggregate_results.py metric1 metric2  # custom metric list
 ```
 """
 

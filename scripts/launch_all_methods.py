@@ -5,60 +5,42 @@ import mlflow
 import time
 import re
 
-# Each job will use its own tracking directory
-# Check merged results to determine what needs to be run
+# warning: database lock issues can occur if using db for logging
+USE_DB = False
+if USE_DB:
+    mlflow.set_tracking_uri('sqlite:///coda.sqlite')
 
-def check_completed_runs():
-    """Check merged results to see what's already completed."""
-    completed = set()
-    
-    # Check if merged results exist
-    merged_dir = './mlruns_merged'
-    if os.path.exists(merged_dir):
-        try:
-            mlflow.set_tracking_uri(f'file://{os.path.abspath(merged_dir)}')
-            experiments = mlflow.search_experiments()
-            
-            for exp in experiments:
-                if exp.name == "Default":
-                    continue
-                    
-                runs = mlflow.search_runs(
-                    experiment_ids=[exp.experiment_id],
-                    filter_string="status = 'FINISHED'",
-                    max_results=1000
-                )
-                
-                for _, run in runs.iterrows():
-                    run_name = run.get('tags.mlflow.runName', '')
-                    if run_name:
-                        completed.add(run_name)
-        except Exception as e:
-            print(f"Could not read merged results: {e}")
-    
-    return completed
 
-def run_needed(task, method, max_seeds, completed_runs):
-    """Check if this task/method combination needs to be run."""
-    
-    # Check seed 0 first
-    seed0_name = f"{task}-{method}-0"
-    if seed0_name not in completed_runs:
+def seed_run_status(task, method, seed):
+    run_name = f"{task}-{method}-{seed}"
+    runs = mlflow.search_runs(
+        experiment_names=[task],
+        filter_string=f"tags.mlflow.runName = '{run_name}'",
+        max_results=1,
+    )
+    if len(runs) == 0:
+        return None, False
+    finished = runs.status.values[0] == 'FINISHED'
+    stochastic = (
+        'params.stochastic' in runs.columns and
+        runs['params.stochastic'].values[0] == 'True'
+    )
+    return finished, stochastic
+
+
+def run_needed(task, method, max_seeds):
+    status = seed_run_status(task, method, 0)
+    if status[0] is None:
+        return True  # seed0 never run
+    finished0, stochastic0 = status
+    if not finished0:
         return True
-    
-    # If seed 0 exists, check if method is stochastic by looking for seed 1
-    seed1_name = f"{task}-{method}-1" 
-    if seed1_name not in completed_runs:
-        # Might be non-stochastic (only needs seed 0) or needs more seeds
-        # For safety, assume we need to check all seeds
-        pass
-    
-    # Check all seeds up to max_seeds
-    for seed in range(max_seeds):
-        seed_name = f"{task}-{method}-{seed}"
-        if seed_name not in completed_runs:
+    if not stochastic0:
+        return False
+    for seed in range(1, max_seeds):
+        finished, _ = seed_run_status(task, method, seed)
+        if not finished:
             return True
-    
     return False
 
 def get_running_jobs():
@@ -159,7 +141,7 @@ def main():
     job_queue = []
     for task in tasks:
         for method in methods:
-            if not run_needed(task, method, args.seeds, completed_runs):
+            if not run_needed(task, method, args.seeds):
                 print(f"Skipping {task}/{method}; all seeds finished")
                 continue
             cmd = srun_prefix + [
