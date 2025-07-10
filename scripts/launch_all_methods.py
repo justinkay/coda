@@ -5,7 +5,6 @@ import mlflow
 import time
 import re
 
-# warning: database lock issues can occur if using db for logging
 USE_DB = True
 if USE_DB:
     mlflow.set_tracking_uri('sqlite:///coda.sqlite')

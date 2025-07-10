@@ -22,6 +22,10 @@ from typing import Dict, List, Optional
 import mlflow
 import numpy as np
 
+USE_DB = True
+if USE_DB:
+    mlflow.set_tracking_uri('sqlite:///coda.sqlite')
+    
 
 def aggregate_metrics(metric_keys: Optional[List[str]] = None) -> None:
     """Compute step-wise means for *metric_keys* and log them to parent runs."""
@@ -33,60 +37,64 @@ def aggregate_metrics(metric_keys: Optional[List[str]] = None) -> None:
 
     # Iterate over every experiment visible to the current tracking URI
     for exp in client.search_experiments():
-        exp_id = exp.experiment_id
+        try:
+            exp_id = exp.experiment_id
 
-        # Pull *all* runs in this experiment; we'll identify parents locally
-        all_runs = mlflow.search_runs(
-            experiment_ids=[exp_id], output_format="pandas"
-        )
-        if all_runs.empty:
-            continue
-
-        # Parent runs have *no* parentRunId tag (NaN in the dataframe)
-        parent_mask = all_runs["tags.mlflow.parentRunId"].isna()
-        parent_runs = all_runs[parent_mask]
-
-        for _, parent_row in parent_runs.iterrows():
-            parent_run_id: str = parent_row["run_id"]
-
-            # Child runs reference this parent via tag
-            child_runs = mlflow.search_runs(
-                experiment_ids=[exp_id],
-                filter_string=f"tags.mlflow.parentRunId = '{parent_run_id}'",
-                output_format="pandas",
+            # Pull *all* runs in this experiment; we'll identify parents locally
+            all_runs = mlflow.search_runs(
+                experiment_ids=[exp_id], output_format="pandas"
             )
-            if child_runs.empty:
+            if all_runs.empty:
                 continue
 
-            # Collector: {metric -> {step -> [values]}}
-            collector: Dict[str, Dict[int, List[float]]] = {
-                m: {} for m in metric_keys
-            }
+            # Parent runs have *no* parentRunId tag (NaN in the dataframe)
+            parent_mask = all_runs["tags.mlflow.parentRunId"].isna()
+            parent_runs = all_runs[parent_mask]
 
-            for _, child_row in child_runs.iterrows():
-                run_id = child_row["run_id"]
-                for metric in metric_keys:
-                    try:
-                        history = client.get_metric_history(run_id, metric)
-                    except mlflow.exceptions.MlflowException:
-                        continue  # metric not found in this child
-                    for point in history:
-                        collector[metric].setdefault(point.step, []).append(point.value)
+            for _, parent_row in parent_runs.iterrows():
+                parent_run_id: str = parent_row["run_id"]
 
-            # Log aggregated means back to the parent run
-            for metric, step_dict in collector.items():
-                for step, values in step_dict.items():
-                    mean_val = float(np.mean(values))
-                    client.log_metric(
-                        parent_run_id,
-                        key=f"mean_{metric}",
-                        value=mean_val,
-                        step=step,
-                    )
-                    print(
-                        f"[Exp {exp.name}] parent {parent_run_id[:8]} | "
-                        f"step {step} mean_{metric} = {mean_val:.6f}"
-                    )
+                # Child runs reference this parent via tag
+                child_runs = mlflow.search_runs(
+                    experiment_ids=[exp_id],
+                    filter_string=f"tags.mlflow.parentRunId = '{parent_run_id}'",
+                    output_format="pandas",
+                )
+                if child_runs.empty:
+                    continue
+
+                # Collector: {metric -> {step -> [values]}}
+                collector: Dict[str, Dict[int, List[float]]] = {
+                    m: {} for m in metric_keys
+                }
+
+                for _, child_row in child_runs.iterrows():
+                    run_id = child_row["run_id"]
+                    for metric in metric_keys:
+                        try:
+                            history = client.get_metric_history(run_id, metric)
+                        except mlflow.exceptions.MlflowException:
+                            continue  # metric not found in this child
+                        for point in history:
+                            collector[metric].setdefault(point.step, []).append(point.value)
+
+                # Log aggregated means back to the parent run
+                for metric, step_dict in collector.items():
+                    for step, values in step_dict.items():
+                        mean_val = float(np.mean(values))
+                        client.log_metric(
+                            parent_run_id,
+                            key=f"mean_{metric}",
+                            value=mean_val,
+                            step=step,
+                        )
+                        print(
+                            f"[Exp {exp.name}] parent {parent_run_id[:8]} | "
+                            f"step {step} mean_{metric} = {mean_val:.6f}"
+                        )
+        except Error as e:
+            print('Probelm with', exp)
+            print(e)
 
 
 def main() -> None:

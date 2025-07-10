@@ -3,6 +3,10 @@ import pandas as pd
 import numpy as np
 import os
 
+USE_DB = True
+if USE_DB:
+    mlflow.set_tracking_uri('sqlite:///coda.sqlite')
+
 
 def get_baseline_methods():
     return [
@@ -11,6 +15,8 @@ def get_baseline_methods():
         ('activetesting', 'Active Testing'),
         ('vma', 'VMA'),
         ('model_picker', 'Model Selector'),
+        ('coda', 'CODA'),
+        ('coda-lr=0.001', 'CODA-lr=0.001'),
     ]
 
 def normalize_task_name(experiment_name):
@@ -72,8 +78,8 @@ def load_all_baseline_results():
                 
                 # TESTING
                 # Skip CODA runs
-                if 'coda' in run_name.lower():
-                    continue
+                # if 'coda' in run_name.lower():
+                #     continue
                 
                 method = extract_method_from_run_name(run_name)
                 seed = int(run.data.params.get('seed', 0))

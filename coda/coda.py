@@ -8,7 +8,8 @@ import mlflow
 from coda.base import ModelSelector
 from coda.util import Ensemble, distribution_entropy, _check, _check_prob, plot_bar
 
-_DEBUG = True
+_DEBUG = True       # check for valid PDFs, infs, NaNs
+_DEBUG_VIZ = False  # plot PBest and EIG every iter
 
 
 def dirichlet_to_beta(alpha_dirichlet: torch.Tensor):
@@ -57,10 +58,16 @@ def initialize_dirichlets(soft_confusion: torch.Tensor,
                               device=soft_confusion.device)
             base.fill_diagonal_(base_strength * 5 / 8)
         else:
-            base = torch.full((C, C), base_strength / (C - 1),
+            # base = torch.full((C, C), base_strength / (C - 1),
+            #                   dtype=soft_confusion.dtype,
+            #                   device=soft_confusion.device)
+            # base.fill_diagonal_(base_strength)
+            # TESTING WHAT IF WE DO THIS
+            base = torch.full((C, C), 1.0 / (C - 1),
                               dtype=soft_confusion.dtype,
                               device=soft_confusion.device)
-            base.fill_diagonal_(base_strength)
+            base.fill_diagonal_(1.0)
+            
     elif base_prior == "uniform":
         base = torch.full((C, C), 2 * base_strength / C,
                           dtype=soft_confusion.dtype,
@@ -80,11 +87,11 @@ def compute_ensemble_marginal(confusion_matrices: torch.Tensor,
 
 
 def batch_update_dirichlet_for_item(dirichlet_alphas: torch.Tensor,
-                                    worker_preds: torch.Tensor,
+                                    classifier_preds: torch.Tensor,
                                     update_weight: float = 1.0) -> torch.Tensor:
-    N, H, C = worker_preds.shape
+    N, H, C = classifier_preds.shape
     updated = dirichlet_alphas[None, None].expand(N, C, H, C, C).clone()
-    updates = worker_preds[:, None].expand(-1, C, -1, -1) * update_weight
+    updates = classifier_preds[:, None].expand(-1, C, -1, -1) * update_weight
     for c in range(C):
         updated[:, c, :, c, :] += updates[:, c, :, :]
     return updated
@@ -159,8 +166,7 @@ def p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
 
     # β_cc
     row_sum  = updated_dirichlet.sum(-1)                              # (B,C,H,C)
-    beta_cc  = (torch.take_along_dim(row_sum, idx, dim=-1)
-                .squeeze(-1) - alpha_cc)                              # (B,C,H)
+    beta_cc  = (torch.take_along_dim(row_sum, idx, dim=-1).squeeze(-1) - alpha_cc) # (B,C,H)
 
     # integrate Beta PDFs
     # compute_p_best_beta_batched expects (N,C,H); here N == B
@@ -175,7 +181,7 @@ def p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
 
 
 def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
-                          worker_preds: torch.Tensor,
+                          classifier_preds: torch.Tensor,
                           marginal_distribution: torch.Tensor,
                           candidate_ids: list[int],
                           chunk_size: int = 100,
@@ -183,21 +189,21 @@ def eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
                           num_points: int = 1024) -> torch.Tensor:
 
     device   = dirichlet_alphas.device
-    _, H, C  = worker_preds.shape
+    _, H, C  = classifier_preds.shape
     pi       = marginal_distribution
 
     candidates = torch.tensor(candidate_ids, device=device)
 
     # compute current entropy
     H, C_dir, _ = dirichlet_alphas.shape
-    expanded = dirichlet_alphas.unsqueeze(0).unsqueeze(0).expand(1, C_dir, H, C_dir, C_dir)
+    expanded = dirichlet_alphas.unsqueeze(0).unsqueeze(0).expand(1, C_dir, H, C_dir, C_dir) # duplicate across class dim
     current_probs = p_best_row_mixture_batched(expanded, pi, num_points=num_points).squeeze(0)  # (H,)
     H_current = distribution_entropy(current_probs)
 
     eig_chunks = []
     for s in tqdm(range(0, len(candidates), chunk_size)):
         ids   = candidates[s:s + chunk_size]              # (B,)
-        preds = F.one_hot(worker_preds[ids].argmax(-1), C).float()  # (B,H,C)
+        preds = F.one_hot(classifier_preds[ids].argmax(-1), C).float()  # (B,H,C)
 
         # all hypothetical updates at once
         updated = batch_update_dirichlet_for_item(dirichlet_alphas, preds, update_weight) # (B,C,H,C,C)
@@ -292,7 +298,7 @@ class CODA(ModelSelector):
         else:
             raise NotImplementedError(self.q)
 
-        if step is not None and _DEBUG:
+        if step is not None and _DEBUG_VIZ:
             mlflow.log_image(plot_bar(q_vals), key="EIG", step=step)
 
         best = q_vals.max()
@@ -322,7 +328,7 @@ class CODA(ModelSelector):
         if torch.isnan(p_best).any():
             raise ValueError("NaN in posterior")
         
-        if _DEBUG: mlflow.log_image(plot_bar(p_best), key="PBest", step=self.step)
+        if _DEBUG_VIZ: mlflow.log_image(plot_bar(p_best), key="PBest", step=self.step)
 
         # track how many times we've done this
         self.step += 1 

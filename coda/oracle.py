@@ -17,7 +17,7 @@ class Oracle:
         - Tensor of shape (H,) representing the mean loss for each model.
         """
         H, N, C = preds.shape
-        return self.loss_fn(preds.view(-1, C), self.labels.repeat(H), 
+        return self.loss_fn(preds.reshape(-1, C), self.labels.repeat(H), 
                             reduction='none').view(H, N).mean(dim=1)
 
 
