@@ -113,11 +113,11 @@ def check_job_completion(running_jobs):
 def main():
     p = argparse.ArgumentParser(description='Launch all methods for all tasks')
     p.add_argument('--pred-dir', default='data', help='Directory containing prediction tensors')
-    p.add_argument('--methods', default='iid,activetesting,vma,model_picker,uncertainty,coda,coda-lr=0.001',
+    p.add_argument('--methods', default='iid,activetesting,vma,model_picker,uncertainty,coda',
                    help='Comma-separated list of methods to run')
     p.add_argument('--seeds', type=int, default=5, help='Maximum number of seeds')
-    p.add_argument('--max-concurrent-jobs', type=int, default=16, 
-                   help='Maximum number of concurrent SLURM jobs (default: 16)')
+    p.add_argument('--max-concurrent-jobs', type=int, default=32, 
+                   help='Maximum number of concurrent SLURM jobs (default: 32)')
     p.add_argument('--polling-interval', type=int, default=30,
                    help='Seconds between job status checks (default: 30)')
     args = p.parse_args()
@@ -148,9 +148,26 @@ def main():
             ]
 
             # allow modifying coda hparams through this script
-            lr_match = re.search(r'coda-lr=([0-9.]+)', method)
-            if lr_match:
-                cmd.extend(['--learning-rate', lr_match.group(1)])
+            params_match = re.search(r'coda-lr=([0-9.]+)-mult=([0-9.]+)', method)
+            if params_match:
+                cmd.extend(['--learning-rate', params_match.group(1)])
+                cmd.extend(['--multiplier', params_match.group(2)])
+                print("launching with lr", params_match.group(1), "and multiplier", params_match.group(2))
+
+            # params_match = re.search(r'coda-lr=([0-9.]+)-mult=([0-9.]+)-alpha=([0-9.]+)', method)
+            # if params_match:
+            #     cmd.extend(['--learning-rate', params_match.group(1)])
+            #     cmd.extend(['--multiplier', params_match.group(2)])
+            #     cmd.extend(['--alpha', params_match.group(3)])
+            #     print("launching with lr", params_match.group(1), "and multiplier", params_match.group(2), "and alpha", params_match.group(3))
+
+            if '-no-prefilter' in method:
+                cmd.extend(['--prefilter-n', '0'])
+                print("Launching without prefilter")
+
+            if '-beta' in method:
+                cmd.extend(['--beta',])
+                print("launching with beta approx")
 
             job_queue.append(cmd)
     

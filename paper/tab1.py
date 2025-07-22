@@ -15,8 +15,16 @@ def get_baseline_methods():
         ('activetesting', 'Active Testing'),
         ('vma', 'VMA'),
         ('model_picker', 'Model Selector'),
-        ('coda', 'CODA'),
-        ('coda-lr=0.001', 'CODA-lr=0.001'),
+        # ('coda', 'CODA'),
+
+        ('coda-lr=0.01-mult=1.0', 'coda-lr=0.01-mult=1.0'),
+        ('coda-lr=0.01-mult=2.0', 'coda-lr=0.01-mult=2.0'),
+        ('coda-lr=0.01-mult=5.0', 'coda-lr=0.01-mult=5.0'),
+        ('coda-lr=0.01-mult=10.0', 'coda-lr=0.01-mult=10.0'),
+
+        ('coda-lr=0.001-mult=1.0', 'coda-lr=0.001-mult=1.0'),
+        ('coda-lr=0.001-mult=2.0', 'coda-lr=0.001-mult=2.0'),
+        ('coda-lr=0.001-mult=5.0', 'coda-lr=0.001-mult=5.0'),
     ]
 
 def normalize_task_name(experiment_name):

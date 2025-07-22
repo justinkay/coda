@@ -37,20 +37,18 @@ def parse_args():
     parser.add_argument("--force-rerun", action="store_true", help="Overwrite existing runs.")
     parser.add_argument("--experiment-name", default=None) # overrides default of using task as experiment name
 
-    # method settings
+    # general method settings
     parser.add_argument("--loss", help="{ 'ce', 'acc', ... }", default="acc",)
     parser.add_argument("--method", help="{ 'iid', 'beta', 'activetesting', 'vma' }", default='iid')
-    parser.add_argument("--q", default="eig", help="{ 'iid', 'eig', 'l1', 'weighted_l1', 'max_regret', 'reduce_regret_local', 'reduce_regret_global' }")
     parser.add_argument("--prefilter-fn", default='disagreement', help="{ None, 'disagreement', 'iid' }")
     parser.add_argument("--prefilter-n", type=int, default=2500)
-    parser.add_argument("--epsilon", type=float, default=0.0)
-    parser.add_argument("--prior-source", default="ens-exp", help="{ 'ens-exp', 'ens-01', 'ds', 'ens-soft-01' }")
-    parser.add_argument("--item-priors", default='ens', help="{ 'none', 'ens', bma-adaptive' }")
     
     # CODA settings
     parser.add_argument("--base-prior", default="diag")
     parser.add_argument("--alpha", default=0.9, type=float)
     parser.add_argument("--learning-rate", default=0.01, type=float)
+    parser.add_argument("--multiplier", default=1.0, type=float)
+    parser.add_argument("--beta", action="store_true", help="Use beta MoM approximation to full Dirichlet for PBest/EIG")
 
     return parser.parse_args()
 

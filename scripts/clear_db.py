@@ -64,9 +64,11 @@ def delete_selected(tasks, methods, skip_confirm=False):
             print(f"  Found {len(all_runs)} runs in experiment {exp.name}")
             for run in all_runs:
                 # Check if any of the methods appear in the run name
+                # TODO: check for exact match
                 if any(method in run.info.run_name for method in methods):
                     print(f"    Marking run for deletion: {run.info.run_name}")
                     to_delete_runs.append(run)
+
     if not to_delete_runs and not to_delete_exps:
         print('Nothing found to delete.')
         return

@@ -89,34 +89,22 @@ def batch_update_dirichlet_for_item(dirichlet_alphas: torch.Tensor,
     return updated
 
 
-def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
-                                beta_batch:  torch.Tensor,
+def compute_pbest_beta_batched(alpha_batch: torch.Tensor,  # (B_, C_, C, H)
+                                beta_batch:  torch.Tensor, # (B_, C_, C, H)
                                 num_points: int = 256,
                                 eps: float = 1e-30,
                                 chunk_size: int = None) -> torch.Tensor:
     device = alpha_batch.device
-    if alpha_batch.ndim == 2:
-        alpha_batch = alpha_batch[None]
-        beta_batch = beta_batch[None]
-        single_item = True
-    else:
-        single_item = False
-
-    # N, C, H = alpha_batch.shape
     N = alpha_batch.shape[0]
     C, H = alpha_batch.shape[-2:]
-
     chunk_size = chunk_size or N
     x = torch.linspace(1e-6, 1 - 1e-6, num_points, device=device).unsqueeze(-1) # P×1
-    # prob_out = torch.zeros(N, C, H, device=device)
-    prob_out = torch.zeros_like(alpha_batch)
 
+    prob_out = torch.zeros_like(alpha_batch)
     for start in range(0, N, chunk_size):
         end = min(start + chunk_size, N)
         a_flat = alpha_batch[start:end].reshape(-1, H)          # B_*C_*C × H
         b_flat = beta_batch[start:end].reshape(-1, H)
-        # print("a flat", a_flat.shape)
-        # print("b flat", b_flat.shape)
         
         logpdf = Beta(a_flat.reshape(-1), b_flat.reshape(-1)).log_prob(x)
         pdf = logpdf.exp().T.reshape(-1, H, num_points)         # B_*C_*C × H × P
@@ -141,10 +129,10 @@ def compute_p_best_beta_batched(alpha_batch: torch.Tensor,
 
         prob_out[start:end] = prob.reshape(alpha_batch[start:end].shape)
 
-    return prob_out[0] if single_item else prob_out
+    return prob_out # (B_, C_, C, H)
 
 
-def p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
+def pbest_row_mixture_batched(updated_dirichlet: torch.Tensor,
                                 pi_hat: torch.Tensor,
                                 num_points: int = 256) -> torch.Tensor:
     """
@@ -161,6 +149,7 @@ def p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
     """
     C = updated_dirichlet.shape[-1]
 
+    # TODO: use dirichlet_to_beta ?
     # α_cc
     diag_full = torch.diagonal(updated_dirichlet, dim1=-2, dim2=-1) # (B_, C_, H, C)
     new_order = list(range(diag_full.ndim - 2)) + [diag_full.ndim - 1, diag_full.ndim - 2]
@@ -171,57 +160,14 @@ def p_best_row_mixture_batched(updated_dirichlet: torch.Tensor,
     beta_cc = torch.permute(row_sum, new_order) - alpha_cc # (B_, C_, C, H)
 
     # P(h is best | row c)
-    prob_best_b_c_ch = compute_p_best_beta_batched(alpha_cc, beta_cc, num_points=num_points) # (B_,C_,C,H)
+    prob_best_b_c_ch = compute_pbest_beta_batched(alpha_cc, beta_cc, num_points=num_points) # (B_,C_,C,H)
     
-    # Convert conditional to marginal probabilities using pi
+    # convert conditional to marginal probabilities using pi_hat
     # expected P(best | item b) = Σ_c expected P(best | item b, class=c) * P(class=c)
     marginal_probs = (prob_best_b_c_ch * pi_hat.view(1, C, 1)).sum(-2)  # (B_, C_, H)
 
     return marginal_probs
 
-
-def old_eig_dirichlet_batched(dirichlet_alphas: torch.Tensor,
-                          classifier_preds: torch.Tensor,
-                          pi_hat: torch.Tensor,     # marginal
-                          pi_hat_xi: torch.Tensor,  # per item
-                          candidate_ids: list[int],
-                          chunk_size: int = 100,
-                          update_weight: float = 1.0,
-                          num_points: int = 256) -> torch.Tensor:
-
-    device   = dirichlet_alphas.device
-    _, H, C  = classifier_preds.shape
-
-    candidates = torch.tensor(candidate_ids, device=device)
-
-    # compute current entropy
-    H, C_dir, _ = dirichlet_alphas.shape
-    expanded = dirichlet_alphas.unsqueeze(0).unsqueeze(0).expand(1, 1, H, C_dir, C_dir) # get it into shape p_best expects - dummy B_ and C_ dims
-    current_probs = p_best_row_mixture_batched(expanded, pi_hat, num_points=num_points).squeeze()  # (H,)
-    H_current = distribution_entropy(current_probs)
-
-    eig_chunks = []
-    for s in tqdm(range(0, len(candidates), chunk_size)):
-        ids   = candidates[s:s + chunk_size] # (B,)
-        preds = F.one_hot(classifier_preds[ids].argmax(-1), C).float()  # (B,H,C)
-
-        # all hypothetical updates at once
-        updated = batch_update_dirichlet_for_item(dirichlet_alphas, preds, update_weight) # (B,C,H,C,C)
-        updated_probs = p_best_row_mixture_batched(updated, pi_hat, num_points) # (B,C,H)
-
-        # entropy for each hypothetical outcome
-        # weighted by probability of that outcome according to consensus votes (pi_hat_xi)
-        pi_xi = pi_hat_xi[ids]
-        p_clamped = updated_probs.clamp_min(1e-12)
-        H_updated = (-(p_clamped * p_clamped.log2()).sum(-1) * pi_xi) # (B,C)
-        H_updated = H_updated.sum(-1) # (B,)
-        # print("H updated, H_current", H_updated, H_current)
-
-        # expected IG  = H_current − E[H_updated]
-        eig_chunk = H_current - H_updated                         # (B,)
-        eig_chunks.append(eig_chunk)                              # (B,)
-
-    return torch.cat(eig_chunks)                                  # (N_candidates,)
 
 def batch_update_beta(selector, # selector.dirichlets: (H,C,C)
                       preds,    # (B, H)
@@ -235,7 +181,6 @@ def batch_update_beta(selector, # selector.dirichlets: (H,C,C)
     class_range  = torch.arange(C, device=alpha_cc_before.device).unsqueeze(1).expand(B,C,H)
     eq_mask = (pred_classes == class_range) # B,C,H
     eq_mask = eq_mask.permute(0,2,1) # B,H,C
-    # print("eq_mask", eq_mask.shape)
 
     alpha_batch = alpha_cc_before.expand(B, H, C).clone()
     beta_batch = beta_cc_before.expand(B, H, C).clone()
@@ -245,73 +190,65 @@ def batch_update_beta(selector, # selector.dirichlets: (H,C,C)
     return alpha_batch, beta_batch # (B, H, C), (B, H, C)
 
 
-def eig_dirichlet_batched(selector,
-                          candidate_ids: list[int],
-                          chunk_size: int = 100,
-                          update_weight: float = 1.0,
-                          num_points: int = 256) -> torch.Tensor:
+def pbest_beta_mom_approx(
+    alpha: torch.Tensor,    # (..., C, H)
+    beta: torch.Tensor,     # (..., C, H)
+    marginal_distribution: torch.Tensor,
+    num_points=256,
+    epsilon=1e-6
+) -> torch.Tensor:
+    """
+    Computes the probability that each model is the best, given class-conditional beta distributions
+    and marginal class probabilities. Uses method of moments to approximate each model's overall
+    accuracy distribution with a Beta distribution.
     
-    classifier_preds = selector.dataset.preds.permute(1, 0, 2)
-    candidates = torch.tensor(candidate_ids, device=classifier_preds.device)
-    N, H, C = classifier_preds.shape
+    Args:
+        alpha: Tensor of shape (H, C) containing alpha parameters for H models and C classes.
+        beta: Tensor of shape (H, C) containing beta parameters for H models and C classes.
+        marginal_distribution: Tensor of shape (C,) with marginal probabilities for each class.
+        num_points: Number of grid points for numerical integration.
+        
+    Returns:
+        prob_best: Tensor of shape (H,) with probabilities that each model is the best.
+    """
+    C = len(marginal_distribution)
+    
+    row_means = alpha / (alpha + beta)
+    row_vars  = (alpha * beta) / ((alpha + beta)**2 * (alpha + beta + 1))
+    mu = torch.sum(marginal_distribution.view(1, C, 1) * row_means, dim=-2)
+    v  = torch.sum(marginal_distribution.view(1, C, 1) * (row_vars + row_means**2), dim=-2) - mu**2 
 
-    # compute current pbest per row
-    dirichlets_before = selector.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, 1, H, C, C)
-    alpha_cc_before, beta_cc_before = dirichlet_to_beta(dirichlets_before) # (1, 1, H, C)
-    alpha_cc_before = alpha_cc_before.permute(0,3,1,2)  # (1, C, 1, H)
-    beta_cc_before  = beta_cc_before.permute(0,3,1,2)   # (1, C, 1, H)
-    pbest_rows_before = compute_p_best_beta_batched(alpha_cc_before, beta_cc_before).squeeze(-2) # (1, C, H)
+    safe_mu = mu.clamp(min=epsilon, max=1 - epsilon)
+    variance_bound = safe_mu * (1 - safe_mu)
+    v_clamped = torch.min(v, variance_bound - epsilon)
 
-    mixture0 = (selector.pi_hat[:, None] * pbest_rows_before).sum(1)   # (1,H)
-    H_before = -(mixture0.clamp_min(1e-12)
-                          .mul(mixture0.clamp_min(1e-12).log2())
-                          ).sum(-1)
+    nu = (safe_mu * (1 - safe_mu) / (v_clamped + epsilon)) - 1
+    nu = torch.clamp(nu, min=epsilon)
+    alpha_prime = safe_mu * nu
+    beta_prime = (1 - safe_mu) * nu
+    alpha_prime = torch.clamp(alpha_prime, min=epsilon)
+    beta_prime = torch.clamp(beta_prime, min=epsilon)
 
-    # broadcast helpers
-    mixture0_bc = mixture0.view(1, 1, H) # (1,1,H)
-    pi_hat_row  = selector.pi_hat.view(1, C, 1)   # (1,C,1)
+    return compute_pbest_beta_batched(alpha_prime, beta_prime, num_points=num_points)
 
-    eig_chunks = []
-    for s in tqdm(range(0, len(candidates), chunk_size)):
-        ids   = candidates[s:s + chunk_size] # (B,)
-        preds = classifier_preds[ids].argmax(-1) # (B, H)
-        pi_hat_xi = selector.pi_hat_xi[ids]
-
-        # do all hypothetical updates at once
-        alpha_reduced, beta_reduced = batch_update_beta(selector, preds, update_weight) # (B,H,C_)
-        alpha_reduced = alpha_reduced.permute(0,2,1).unsqueeze(-2)  # (B, C_, 1, H)
-        beta_reduced = beta_reduced.permute(0,2,1).unsqueeze(-2)    # (B, C_, 1, H)
-
-        pbest_hypothetical_rows = compute_p_best_beta_batched(alpha_reduced, 
-                                                              beta_reduced, 
-                                                              num_points=num_points).squeeze(-2) # (B, C_, H)
-
-        deltas = pi_hat_row * (pbest_hypothetical_rows - pbest_rows_before) # (B,C,H)
-        mix_new = mixture0_bc + deltas # (B,C,H)
-        H_after = -(mix_new.clamp_min(1e-12).mul(mix_new.clamp_min(1e-12).log2())).sum(-1) # (B,C)
-        eig = H_before - (pi_hat_xi * H_after).sum(-1)      # (B,)
-        eig_chunks.append(eig)
-
-    return torch.cat(eig_chunks)
 
 class CODA(ModelSelector):
     def __init__(self, dataset,
-                 q='eig',
                  prefilter_fn='disagreement',
                  prefilter_n=0,
-                 epsilon=0.0,
                  base_prior="diag",
                  alpha=0.9,
-                 learning_rate=0.01
+                 learning_rate=0.01,
+                 multiplier=1.0,
+                 use_beta_approx=False
                  ):
         self.dataset = dataset
         self.device = dataset.preds.device
         self.H, self.N, self.C = dataset.preds.shape
-        self.q = q
         self.prefilter_fn = prefilter_fn
         self.prefilter_n = prefilter_n
-        self.epsilon = epsilon
         self.base_prior = base_prior
+        self.use_beta_approx = use_beta_approx
 
         # hyperparams
         self.base_strength = alpha
@@ -322,13 +259,10 @@ class CODA(ModelSelector):
         ens_pred = Ensemble(dataset.preds).get_preds()
         ens_pred_hard = ens_pred.argmax(-1)  # pseudo labels
         soft_conf = create_confusion_matrices(ens_pred_hard, dataset.preds, mode='soft')
-        self.dirichlets = initialize_dirichlets(soft_conf,
+        self.dirichlets = multiplier * initialize_dirichlets(soft_conf,
                                                 self.prior_strength,
                                                 base_strength=self.base_strength,
                                                 base_prior=self.base_prior)
-        # class marginal distribution
-        # self.pi_hat = update_pi_hat(self.dirichlets, dataset.preds)
-        # self.pi_hat = self.pi_hat / self.pi_hat.sum()
         self.update_pi_hat()
 
         self.labeled_idxs, self.labels = [], []
@@ -340,13 +274,13 @@ class CODA(ModelSelector):
     @classmethod
     def from_args(cls, dataset, args):
         return cls(dataset,
-                   q=args.q,
                    prefilter_fn=args.prefilter_fn,
                    prefilter_n=args.prefilter_n,
-                   epsilon=args.epsilon,
                    alpha=args.alpha,
                    learning_rate=args.learning_rate,
-                   base_prior=args.base_prior)
+                   base_prior=args.base_prior,
+                   multiplier=args.multiplier,
+                   use_beta_approx=args.beta)
 
     def _prefilter(self, idxs):
         if self.prefilter_fn == 'disagreement':
@@ -367,23 +301,68 @@ class CODA(ModelSelector):
         self.pi_hat = self.pi_hat_xi.sum(0)
         self.pi_hat = self.pi_hat / self.pi_hat.sum()
 
-    def get_next_item_to_label(self, step=None):
-        cand = self._prefilter(self.unlabeled_idxs) or self.unlabeled_idxs
-        if self.q == 'iid' or (self.epsilon and random.random() < self.epsilon):
-            self.stochastic = True
-            return random.choice(cand), 1 / len(cand)
+    def eig_batched(self, chunk_size: int = 100, update_weight: float = 1.0, num_points: int = 256) -> torch.Tensor:
+        candidate_ids = self._prefilter(self.unlabeled_idxs) or self.unlabeled_idxs
+        classifier_preds = self.dataset.preds.permute(1, 0, 2)
+        candidates = torch.tensor(candidate_ids, device=classifier_preds.device)
+        N, H, C = classifier_preds.shape
 
-        if self.q == 'eig':
-            q_vals = eig_dirichlet_batched(self,
-                                        #    self.dirichlets,
-                                        #    self.dataset.preds.permute(1, 0, 2),
-                                        #    self.pi_hat,
-                                        #    self.pi_hat_xi,
-                                           cand,
-                                        #    chunk_size=8
-                                           )
+        # compute current pbest per row
+        dirichlets_before = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, 1, H, C, C)
+        
+        if self.use_beta_approx:
+            # TODO duplicate code
+            diag_full = torch.diagonal(dirichlets_before, dim1=-2, dim2=-1) # (B_, C_, H, C)
+            new_order = list(range(diag_full.ndim - 2)) + [diag_full.ndim - 1, diag_full.ndim - 2]
+            alpha_cc = torch.permute(diag_full, new_order) # (B_, C_, C, H)
+            row_sum  = dirichlets_before.sum(-1) # (B_, C_, H, C)
+            beta_cc = torch.permute(row_sum, new_order) - alpha_cc # (B_, C_, C, H)
+            pbest_rows_before = pbest_beta_mom_approx(alpha_cc, beta_cc, self.pi_hat) # (1,1,H)
         else:
-            raise NotImplementedError(self.q)
+            alpha_cc_before, beta_cc_before = dirichlet_to_beta(dirichlets_before) # (1, 1, H, C)
+            alpha_cc_before = alpha_cc_before.permute(0,3,1,2)  # (1, C, 1, H)
+            beta_cc_before  = beta_cc_before.permute(0,3,1,2)   # (1, C, 1, H)
+            pbest_rows_before = compute_pbest_beta_batched(alpha_cc_before, beta_cc_before).squeeze(-2) # (1, C, H)
+
+        mixture0 = (self.pi_hat[:, None] * pbest_rows_before).sum(1)   # (1,H) ; no-op for beta approx
+        H_before = -(mixture0.clamp_min(1e-12).mul(mixture0.clamp_min(1e-12).log2())).sum(-1)
+
+        # broadcast helpers
+        mixture0_bc = mixture0.view(1, 1, H) # (1,1,H)
+        pi_hat_row  = self.pi_hat.view(1, C, 1)   # (1,C,1)
+
+        eig_chunks = []
+        for s in tqdm(range(0, len(candidates), chunk_size)):
+            ids   = candidates[s:s + chunk_size] # (B,)
+            preds = classifier_preds[ids].argmax(-1) # (B, H)
+            pi_hat_xi = self.pi_hat_xi[ids]
+
+            # do all hypothetical updates at once
+            alpha_hypothetical, beta_hypothetical = batch_update_beta(self, preds, update_weight) # (B,H,C_)
+            alpha_hypothetical = alpha_hypothetical.permute(0,2,1).unsqueeze(-2)  # (B, C_, 1, H)
+            beta_hypothetical = beta_hypothetical.permute(0,2,1).unsqueeze(-2)    # (B, C_, 1, H)
+
+            if self.use_beta_approx:
+                pbest_hypothetical_rows = pbest_beta_mom_approx(alpha_hypothetical, 
+                                                                beta_hypothetical, 
+                                                                self.pi_hat,
+                                                                num_points=num_points) # (B, C_, H)
+                H_after = -(pbest_hypothetical_rows.clamp_min(1e-12).mul(pbest_hypothetical_rows.clamp_min(1e-12).log2())).sum(-1) # (B, C)
+            else:
+                pbest_hypothetical_rows = compute_pbest_beta_batched(alpha_hypothetical, 
+                                                                    beta_hypothetical, 
+                                                                    num_points=num_points).squeeze(-2) # (B, C_, H)
+                deltas = pi_hat_row * (pbest_hypothetical_rows - pbest_rows_before) # (B,C,H)
+                mix_new = mixture0_bc + deltas # (B,C,H)
+                H_after = -(mix_new.clamp_min(1e-12).mul(mix_new.clamp_min(1e-12).log2())).sum(-1) # (B,C)
+            
+            eig = H_before - (pi_hat_xi * H_after).sum(-1) # (B,)
+            eig_chunks.append(eig)
+
+        return torch.cat(eig_chunks), candidate_ids
+
+    def get_next_item_to_label(self, step=None):
+        q_vals, cand = self.eig_batched()
 
         if step is not None and _DEBUG_VIZ:
             mlflow.log_image(plot_bar(q_vals), key="EIG", step=step)
@@ -394,13 +373,12 @@ class CODA(ModelSelector):
                     if ties.sum() > 1 else torch.argmax(q_vals).item()
         if ties.sum() > 1:
             self.stochastic = True
+
         return cand[idx_local], q_vals[idx_local].item()
 
     def add_label(self, idx, true_class, selection_prob):
         preds = F.one_hot(self.dataset.preds[:, idx].argmax(-1), self.C).float()
         self.dirichlets[:, true_class] += self.update_strength * preds
-        # self.pi_hat = update_pi_hat(self.dirichlets, self.dataset.preds)
-        # self.pi_hat = self.pi_hat / self.pi_hat.sum()
 
         self.update_pi_hat()
         self.labeled_idxs.append(idx)
@@ -411,14 +389,24 @@ class CODA(ModelSelector):
     def get_best_model_prediction(self):
         H, C, _ = self.dirichlets.shape
         expanded = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, 1, H, C, C)
-        p_best = p_best_row_mixture_batched(expanded, self.pi_hat).squeeze(0) # (H,)
+
+        if self.use_beta_approx:
+            # TODO duplicate code
+            diag_full = torch.diagonal(expanded, dim1=-2, dim2=-1) # (1,1,H,C)
+            new_order = list(range(diag_full.ndim - 2)) + [diag_full.ndim - 1, diag_full.ndim - 2]
+            alpha_cc = torch.permute(diag_full, new_order) # (1,1, C, H)
+            row_sum  = expanded.sum(-1) # (1,1, H, C)
+            beta_cc = torch.permute(row_sum, new_order) - alpha_cc # (1,1, C, H)
+            pbest = pbest_beta_mom_approx(alpha_cc, beta_cc, self.pi_hat) # (1,1,H)
+        else:
+            pbest = pbest_row_mixture_batched(expanded, self.pi_hat).squeeze(0) # (H,)
         
-        if torch.isnan(p_best).any():
+        if torch.isnan(pbest).any():
             raise ValueError("NaN in posterior")
         
-        if _DEBUG_VIZ: mlflow.log_image(plot_bar(p_best), key="PBest", step=self.step)
+        if _DEBUG_VIZ: mlflow.log_image(plot_bar(pbest), key="PBest", step=self.step)
 
         # track how many times we've done this
         self.step += 1 
 
-        return torch.argmax(p_best)
+        return torch.argmax(pbest)
