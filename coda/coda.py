@@ -45,31 +45,13 @@ def create_confusion_matrices(true_labels: torch.Tensor,
 
 
 def initialize_dirichlets(soft_confusion: torch.Tensor,
-                          prior_strength: float,
-                          base_strength: float = 1.0,
-                          base_prior: str = "diag",
-                          upweight_binary: bool = False) -> torch.Tensor:
+                          prior_strength: float) -> torch.Tensor:
     H, C, _ = soft_confusion.shape
-    if base_prior == "diag":
-        if C == 2 and upweight_binary:
-            base = torch.full((C, C), base_strength * 3 / 8,
-                              dtype=soft_confusion.dtype,
-                              device=soft_confusion.device)
-            base.fill_diagonal_(base_strength * 5 / 8)
-        else:
-            base = torch.full((C, C), 1.0 / (C - 1),
-                              dtype=soft_confusion.dtype,
-                              device=soft_confusion.device)
-            base.fill_diagonal_(1.0)
-            
-    elif base_prior == "uniform":
-        base = torch.full((C, C), 2 * base_strength / C,
-                          dtype=soft_confusion.dtype,
-                          device=soft_confusion.device)
-    elif base_prior == "empirical-bayes":
-        base = 2 * soft_confusion.mean(0) + 1e-5
+    base = torch.full((C, C), 1.0 / (C - 1),
+                        dtype=soft_confusion.dtype,
+                        device=soft_confusion.device)
+    base.fill_diagonal_(1.0)
     base = base.unsqueeze(0).expand(H, C, C)
-
     return base + prior_strength * soft_confusion
 
 
@@ -231,7 +213,6 @@ class CODA(ModelSelector):
     def __init__(self, dataset,
                  prefilter_fn='disagreement',
                  prefilter_n=0,
-                 base_prior="diag",
                  alpha=0.9,
                  learning_rate=0.01,
                  multiplier=1.0,
@@ -242,11 +223,9 @@ class CODA(ModelSelector):
         self.H, self.N, self.C = dataset.preds.shape
         self.prefilter_fn = prefilter_fn
         self.prefilter_n = prefilter_n
-        self.base_prior = base_prior
         self.use_beta_approx = use_beta_approx
 
         # hyperparams
-        self.base_strength = alpha
         self.prior_strength = (1 - alpha)
         self.update_strength = learning_rate
 
@@ -255,9 +234,7 @@ class CODA(ModelSelector):
         ens_pred_hard = ens_pred.argmax(-1)  # pseudo labels
         soft_conf = create_confusion_matrices(ens_pred_hard, dataset.preds, mode='soft')
         self.dirichlets = multiplier * initialize_dirichlets(soft_conf,
-                                                self.prior_strength,
-                                                base_strength=self.base_strength,
-                                                base_prior=self.base_prior)
+                                                self.prior_strength)
         self.update_pi_hat()
 
         self.labeled_idxs, self.labels = [], []
@@ -273,7 +250,6 @@ class CODA(ModelSelector):
                    prefilter_n=args.prefilter_n,
                    alpha=args.alpha,
                    learning_rate=args.learning_rate,
-                   base_prior=args.base_prior,
                    multiplier=args.multiplier,
                    use_beta_approx=args.beta)
 

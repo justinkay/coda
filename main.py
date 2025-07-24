@@ -40,15 +40,14 @@ def parse_args():
     # general method settings
     parser.add_argument("--loss", help="{ 'ce', 'acc', ... }", default="acc",)
     parser.add_argument("--method", help="{ 'iid', 'beta', 'activetesting', 'vma' }", default='iid')
-    parser.add_argument("--prefilter-fn", default='disagreement', help="{ None, 'disagreement', 'iid' }")
-    parser.add_argument("--prefilter-n", type=int, default=2500)
     
     # CODA settings
-    parser.add_argument("--base-prior", default="diag")
     parser.add_argument("--alpha", default=0.9, type=float)
     parser.add_argument("--learning-rate", default=0.01, type=float)
-    parser.add_argument("--multiplier", default=1.0, type=float)
-    parser.add_argument("--beta", action="store_true", help="Use beta MoM approximation to full Dirichlet for PBest/EIG")
+    parser.add_argument("--multiplier", default=1.0, type=float) # TODO: temperature
+    parser.add_argument("--beta", action="store_true", help="Use beta MoM approximation to full Dirichlet for PBest/EIG") # TODO: remove
+    parser.add_argument("--prefilter-fn", default='disagreement', help="{ None, 'disagreement', 'iid' }")
+    parser.add_argument("--prefilter-n", type=int, default=0)
 
     return parser.parse_args()
 
