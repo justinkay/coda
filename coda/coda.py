@@ -57,11 +57,6 @@ def initialize_dirichlets(soft_confusion: torch.Tensor,
                               device=soft_confusion.device)
             base.fill_diagonal_(base_strength * 5 / 8)
         else:
-            # base = torch.full((C, C), base_strength / (C - 1),
-            #                   dtype=soft_confusion.dtype,
-            #                   device=soft_confusion.device)
-            # base.fill_diagonal_(base_strength)
-            # TESTING WHAT IF WE DO THIS
             base = torch.full((C, C), 1.0 / (C - 1),
                               dtype=soft_confusion.dtype,
                               device=soft_confusion.device)
