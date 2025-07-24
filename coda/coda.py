@@ -167,48 +167,6 @@ def batch_update_beta(selector, # selector.dirichlets: (H,C,C)
     return alpha_batch, beta_batch # (B, H, C), (B, H, C)
 
 
-def pbest_beta_mom_approx(
-    alpha: torch.Tensor,    # (..., C, H)
-    beta: torch.Tensor,     # (..., C, H)
-    marginal_distribution: torch.Tensor,
-    num_points=256,
-    epsilon=1e-6
-) -> torch.Tensor:
-    """
-    Computes the probability that each model is the best, given class-conditional beta distributions
-    and marginal class probabilities. Uses method of moments to approximate each model's overall
-    accuracy distribution with a Beta distribution.
-    
-    Args:
-        alpha: Tensor of shape (H, C) containing alpha parameters for H models and C classes.
-        beta: Tensor of shape (H, C) containing beta parameters for H models and C classes.
-        marginal_distribution: Tensor of shape (C,) with marginal probabilities for each class.
-        num_points: Number of grid points for numerical integration.
-        
-    Returns:
-        prob_best: Tensor of shape (H,) with probabilities that each model is the best.
-    """
-    C = len(marginal_distribution)
-    
-    row_means = alpha / (alpha + beta)
-    row_vars  = (alpha * beta) / ((alpha + beta)**2 * (alpha + beta + 1))
-    mu = torch.sum(marginal_distribution.view(1, C, 1) * row_means, dim=-2)
-    v  = torch.sum(marginal_distribution.view(1, C, 1) * (row_vars + row_means**2), dim=-2) - mu**2 
-
-    safe_mu = mu.clamp(min=epsilon, max=1 - epsilon)
-    variance_bound = safe_mu * (1 - safe_mu)
-    v_clamped = torch.min(v, variance_bound - epsilon)
-
-    nu = (safe_mu * (1 - safe_mu) / (v_clamped + epsilon)) - 1
-    nu = torch.clamp(nu, min=epsilon)
-    alpha_prime = safe_mu * nu
-    beta_prime = (1 - safe_mu) * nu
-    alpha_prime = torch.clamp(alpha_prime, min=epsilon)
-    beta_prime = torch.clamp(beta_prime, min=epsilon)
-
-    return compute_pbest_beta_batched(alpha_prime, beta_prime, num_points=num_points)
-
-
 class CODA(ModelSelector):
     def __init__(self, dataset,
                  prefilter_fn='disagreement',
@@ -216,14 +174,12 @@ class CODA(ModelSelector):
                  alpha=0.9,
                  learning_rate=0.01,
                  multiplier=1.0,
-                 use_beta_approx=False
                  ):
         self.dataset = dataset
         self.device = dataset.preds.device
         self.H, self.N, self.C = dataset.preds.shape
         self.prefilter_fn = prefilter_fn
         self.prefilter_n = prefilter_n
-        self.use_beta_approx = use_beta_approx
 
         # hyperparams
         self.prior_strength = (1 - alpha)
@@ -250,8 +206,7 @@ class CODA(ModelSelector):
                    prefilter_n=args.prefilter_n,
                    alpha=args.alpha,
                    learning_rate=args.learning_rate,
-                   multiplier=args.multiplier,
-                   use_beta_approx=args.beta)
+                   multiplier=args.multiplier)
 
     def _prefilter(self, idxs):
         if self.prefilter_fn == 'disagreement':
@@ -281,19 +236,11 @@ class CODA(ModelSelector):
         # compute current pbest per row
         dirichlets_before = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, 1, H, C, C)
         
-        if self.use_beta_approx:
-            # TODO duplicate code
-            diag_full = torch.diagonal(dirichlets_before, dim1=-2, dim2=-1) # (B_, C_, H, C)
-            new_order = list(range(diag_full.ndim - 2)) + [diag_full.ndim - 1, diag_full.ndim - 2]
-            alpha_cc = torch.permute(diag_full, new_order) # (B_, C_, C, H)
-            row_sum  = dirichlets_before.sum(-1) # (B_, C_, H, C)
-            beta_cc = torch.permute(row_sum, new_order) - alpha_cc # (B_, C_, C, H)
-            pbest_rows_before = pbest_beta_mom_approx(alpha_cc, beta_cc, self.pi_hat) # (1,1,H)
-        else:
-            alpha_cc_before, beta_cc_before = dirichlet_to_beta(dirichlets_before) # (1, 1, H, C)
-            alpha_cc_before = alpha_cc_before.permute(0,3,1,2)  # (1, C, 1, H)
-            beta_cc_before  = beta_cc_before.permute(0,3,1,2)   # (1, C, 1, H)
-            pbest_rows_before = compute_pbest_beta_batched(alpha_cc_before, beta_cc_before).squeeze(-2) # (1, C, H)
+        # get diagonal betas
+        alpha_cc_before, beta_cc_before = dirichlet_to_beta(dirichlets_before) # (1, 1, H, C)
+        alpha_cc_before = alpha_cc_before.permute(0,3,1,2)  # (1, C, 1, H)
+        beta_cc_before  = beta_cc_before.permute(0,3,1,2)   # (1, C, 1, H)
+        pbest_rows_before = compute_pbest_beta_batched(alpha_cc_before, beta_cc_before).squeeze(-2) # (1, C, H)
 
         mixture0 = (self.pi_hat[:, None] * pbest_rows_before).sum(1)   # (1,H) ; no-op for beta approx
         H_before = -(mixture0.clamp_min(1e-12).mul(mixture0.clamp_min(1e-12).log2())).sum(-1)
@@ -313,19 +260,12 @@ class CODA(ModelSelector):
             alpha_hypothetical = alpha_hypothetical.permute(0,2,1).unsqueeze(-2)  # (B, C_, 1, H)
             beta_hypothetical = beta_hypothetical.permute(0,2,1).unsqueeze(-2)    # (B, C_, 1, H)
 
-            if self.use_beta_approx:
-                pbest_hypothetical_rows = pbest_beta_mom_approx(alpha_hypothetical, 
-                                                                beta_hypothetical, 
-                                                                self.pi_hat,
-                                                                num_points=num_points) # (B, C_, H)
-                H_after = -(pbest_hypothetical_rows.clamp_min(1e-12).mul(pbest_hypothetical_rows.clamp_min(1e-12).log2())).sum(-1) # (B, C)
-            else:
-                pbest_hypothetical_rows = compute_pbest_beta_batched(alpha_hypothetical, 
+            pbest_hypothetical_rows = compute_pbest_beta_batched(alpha_hypothetical, 
                                                                     beta_hypothetical, 
                                                                     num_points=num_points).squeeze(-2) # (B, C_, H)
-                deltas = pi_hat_row * (pbest_hypothetical_rows - pbest_rows_before) # (B,C,H)
-                mix_new = mixture0_bc + deltas # (B,C,H)
-                H_after = -(mix_new.clamp_min(1e-12).mul(mix_new.clamp_min(1e-12).log2())).sum(-1) # (B,C)
+            deltas = pi_hat_row * (pbest_hypothetical_rows - pbest_rows_before) # (B,C,H)
+            mix_new = mixture0_bc + deltas # (B,C,H)
+            H_after = -(mix_new.clamp_min(1e-12).mul(mix_new.clamp_min(1e-12).log2())).sum(-1) # (B,C)
             
             eig = H_before - (pi_hat_xi * H_after).sum(-1) # (B,)
             eig_chunks.append(eig)
@@ -361,16 +301,7 @@ class CODA(ModelSelector):
         H, C, _ = self.dirichlets.shape
         expanded = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, 1, H, C, C)
 
-        if self.use_beta_approx:
-            # TODO duplicate code
-            diag_full = torch.diagonal(expanded, dim1=-2, dim2=-1) # (1,1,H,C)
-            new_order = list(range(diag_full.ndim - 2)) + [diag_full.ndim - 1, diag_full.ndim - 2]
-            alpha_cc = torch.permute(diag_full, new_order) # (1,1, C, H)
-            row_sum  = expanded.sum(-1) # (1,1, H, C)
-            beta_cc = torch.permute(row_sum, new_order) - alpha_cc # (1,1, C, H)
-            pbest = pbest_beta_mom_approx(alpha_cc, beta_cc, self.pi_hat) # (1,1,H)
-        else:
-            pbest = pbest_row_mixture_batched(expanded, self.pi_hat).squeeze(0) # (H,)
+        pbest = pbest_row_mixture_batched(expanded, self.pi_hat).squeeze(0) # (H,)
         
         if torch.isnan(pbest).any():
             raise ValueError("NaN in posterior")

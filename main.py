@@ -45,7 +45,6 @@ def parse_args():
     parser.add_argument("--alpha", default=0.9, type=float)
     parser.add_argument("--learning-rate", default=0.01, type=float)
     parser.add_argument("--multiplier", default=1.0, type=float) # TODO: temperature
-    parser.add_argument("--beta", action="store_true", help="Use beta MoM approximation to full Dirichlet for PBest/EIG") # TODO: remove
     parser.add_argument("--prefilter-fn", default='disagreement', help="{ None, 'disagreement', 'iid' }")
     parser.add_argument("--prefilter-n", type=int, default=0)
 
