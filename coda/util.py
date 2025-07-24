@@ -14,11 +14,6 @@ class Ensemble:
         return self.preds.mean(dim=0)
     
 
-def distribution_entropy(prob: torch.Tensor, eps=1e-12) -> torch.Tensor:
-    prob_clamped = prob.clamp(min=eps)
-    return -(prob_clamped * prob_clamped.log2()).sum()
-
-
 def _check(t: torch.Tensor, name: str, *, raise_err=True):
     # for debugging - check t for infs/nans
     bad = ~torch.isfinite(t)

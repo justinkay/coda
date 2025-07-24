@@ -6,7 +6,7 @@ import random
 import mlflow
 
 from coda.base import ModelSelector
-from coda.util import Ensemble, distribution_entropy, _check, _check_prob, plot_bar
+from coda.util import Ensemble, _check, _check_prob, plot_bar
 
 _DEBUG = True       # check for valid PDFs, infs, NaNs
 _DEBUG_VIZ = False  # plot PBest and EIG every iter
@@ -126,17 +126,9 @@ def pbest_row_mixture_batched(updated_dirichlet: torch.Tensor,
     """
     C = updated_dirichlet.shape[-1]
 
-    # TODO: use dirichlet_to_beta ?
-    # α_cc
-    diag_full = torch.diagonal(updated_dirichlet, dim1=-2, dim2=-1) # (B_, C_, H, C)
-    new_order = list(range(diag_full.ndim - 2)) + [diag_full.ndim - 1, diag_full.ndim - 2]
-    alpha_cc = torch.permute(diag_full, new_order) # (B_, C_, C, H)
-    # β_cc
-    row_sum  = updated_dirichlet.sum(-1) # (B_, C_, H, C)
-    beta_cc = torch.permute(row_sum, new_order) - alpha_cc # (B_, C_, C, H)
-
     # P(h is best | row c)
-    prob_best_b_c_ch = compute_pbest_beta_batched(alpha_cc, beta_cc, num_points=num_points) # (B_,C_,C,H)
+    alpha_cc, beta_cc = dirichlet_to_beta(updated_dirichlet)
+    prob_best_b_c_ch = compute_pbest_beta_batched(alpha_cc.transpose(-1, -2), beta_cc.transpose(-1, -2), num_points=num_points) # (B_,C_,C,H)
 
     # convert conditional to marginal probabilities using pi_hat
     # expected P(best | item b) = Σ_c expected P(best | item b, class=c) * P(class=c)
@@ -167,17 +159,15 @@ def batch_update_beta(selector, # selector.dirichlets: (H,C,C)
 
 
 class CODA(ModelSelector):
-    def __init__(self, dataset,
-                 prefilter_fn='disagreement',
+    def __init__(self, 
+                 dataset,
                  prefilter_n=0,
                  alpha=0.9,
                  learning_rate=0.01,
-                 multiplier=1.0,
-                 ):
+                 multiplier=1.0):
         self.dataset = dataset
         self.device = dataset.preds.device
         self.H, self.N, self.C = dataset.preds.shape
-        self.prefilter_fn = prefilter_fn
         self.prefilter_n = prefilter_n
 
         # hyperparams
@@ -200,17 +190,17 @@ class CODA(ModelSelector):
     @classmethod
     def from_args(cls, dataset, args):
         return cls(dataset,
-                   prefilter_fn=args.prefilter_fn,
                    prefilter_n=args.prefilter_n,
                    alpha=args.alpha,
                    learning_rate=args.learning_rate,
                    multiplier=args.multiplier)
 
     def _prefilter(self, idxs):
-        if self.prefilter_fn == 'disagreement':
-            maj, _ = torch.mode(self.dataset.preds.argmax(-1), dim=0)
-            mask = (self.dataset.preds.argmax(-1) != maj).sum(0) > 0
-            idxs = [i for i in idxs if mask[i]]
+        # filter any data points where every model disagrees - waste of compute
+        maj, _ = torch.mode(self.dataset.preds.argmax(-1), dim=0)
+        mask = (self.dataset.preds.argmax(-1) != maj).sum(0) > 0
+        idxs = [i for i in idxs if mask[i]]
+        # can also randomly subsample (disabled by default)
         if self.prefilter_n and len(idxs) > self.prefilter_n:
             idxs = random.sample(idxs, self.prefilter_n)
             self.stochastic = True
