@@ -165,9 +165,9 @@ def main():
                 cmd.extend(['--prefilter-n', '0'])
                 print("Launching without prefilter")
 
-            if '-beta' in method:
-                cmd.extend(['--beta',])
-                print("launching with beta approx")
+            # if '-beta' in method:
+            #     cmd.extend(['--beta',])
+            #     print("launching with beta approx")
 
             job_queue.append(cmd)
     

@@ -131,14 +131,13 @@ def pbest_row_mixture_batched(updated_dirichlet: torch.Tensor,
     diag_full = torch.diagonal(updated_dirichlet, dim1=-2, dim2=-1) # (B_, C_, H, C)
     new_order = list(range(diag_full.ndim - 2)) + [diag_full.ndim - 1, diag_full.ndim - 2]
     alpha_cc = torch.permute(diag_full, new_order) # (B_, C_, C, H)
-
     # β_cc
     row_sum  = updated_dirichlet.sum(-1) # (B_, C_, H, C)
     beta_cc = torch.permute(row_sum, new_order) - alpha_cc # (B_, C_, C, H)
 
     # P(h is best | row c)
     prob_best_b_c_ch = compute_pbest_beta_batched(alpha_cc, beta_cc, num_points=num_points) # (B_,C_,C,H)
-    
+
     # convert conditional to marginal probabilities using pi_hat
     # expected P(best | item b) = Σ_c expected P(best | item b, class=c) * P(class=c)
     marginal_probs = (prob_best_b_c_ch * pi_hat.view(1, C, 1)).sum(-2)  # (B_, C_, H)
@@ -185,12 +184,11 @@ class CODA(ModelSelector):
         self.prior_strength = (1 - alpha)
         self.update_strength = learning_rate
 
-        # initialise dirichlets
+        # initialize dirichlets
         ens_pred = Ensemble(dataset.preds).get_preds()
         ens_pred_hard = ens_pred.argmax(-1)  # pseudo labels
         soft_conf = create_confusion_matrices(ens_pred_hard, dataset.preds, mode='soft')
-        self.dirichlets = multiplier * initialize_dirichlets(soft_conf,
-                                                self.prior_strength)
+        self.dirichlets = multiplier * initialize_dirichlets(soft_conf, self.prior_strength)
         self.update_pi_hat()
 
         self.labeled_idxs, self.labels = [], []
@@ -272,11 +270,13 @@ class CODA(ModelSelector):
 
         return torch.cat(eig_chunks), candidate_ids
 
-    def get_next_item_to_label(self, step=None):
+    def get_next_item_to_label(self):
         q_vals, cand = self.eig_batched()
 
-        if step is not None and _DEBUG_VIZ:
-            mlflow.log_image(plot_bar(q_vals), key="EIG", step=step)
+        if _DEBUG_VIZ:
+            img = plot_bar(q_vals)
+            mlflow.log_image(img, key="EIG", step=self.step)
+            # img.save(str(self.step)+'-eig.png')
 
         best = q_vals.max()
         ties = torch.isclose(q_vals, best, rtol=1e-8)
@@ -302,11 +302,12 @@ class CODA(ModelSelector):
         expanded = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, 1, H, C, C)
 
         pbest = pbest_row_mixture_batched(expanded, self.pi_hat).squeeze(0) # (H,)
+        if _DEBUG: _check(pbest, "Pbest") 
         
-        if torch.isnan(pbest).any():
-            raise ValueError("NaN in posterior")
-        
-        if _DEBUG_VIZ: mlflow.log_image(plot_bar(pbest), key="PBest", step=self.step)
+        if _DEBUG_VIZ:
+            img = plot_bar(pbest)
+            mlflow.log_image(img, key="PBest", step=self.step)
+            # img.save('pbest-'+str(self.step)+'.png')
 
         # track how many times we've done this
         self.step += 1 

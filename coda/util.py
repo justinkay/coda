@@ -55,7 +55,9 @@ def plot_bar(data, fig_size=(10, 5), title="", xlabel="", ylabel=""):
     elif not isinstance(data, np.ndarray):
         raise ValueError("Data must be a numpy array, list, or torch tensor.")
 
-    ax.bar(range(len(data)), data)
+    data = data.squeeze()
+    print('data.shape[0]', data.shape[0])
+    ax.bar(list(range(data.shape[0])), data)
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)

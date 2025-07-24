@@ -20,6 +20,5 @@ class Oracle:
         return self.loss_fn(preds.reshape(-1, C), self.labels.repeat(H), 
                             reduction='none').view(H, N).mean(dim=1)
 
-
     def __call__(self, idx):
         return self.labels[idx].item()
