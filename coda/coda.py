@@ -164,7 +164,7 @@ class CODA(ModelSelector):
                  prefilter_n=0,
                  alpha=0.9,
                  learning_rate=0.01,
-                 multiplier=1.0):
+                 multiplier=2.0):
         self.dataset = dataset
         self.device = dataset.preds.device
         self.H, self.N, self.C = dataset.preds.shape
@@ -287,12 +287,17 @@ class CODA(ModelSelector):
         self.q_vals.append(selection_prob)
         self.unlabeled_idxs.remove(idx)
 
-    def get_best_model_prediction(self):
+    def get_pbest(self):
         H, C, _ = self.dirichlets.shape
         expanded = self.dirichlets.unsqueeze(0).unsqueeze(0).expand(1, 1, H, C, C)
 
         pbest = pbest_row_mixture_batched(expanded, self.pi_hat).squeeze(0) # (H,)
         if _DEBUG: _check(pbest, "Pbest") 
+
+        return pbest
+
+    def get_best_model_prediction(self):
+        pbest = self.get_pbest()
         
         if _DEBUG_VIZ:
             img = plot_bar(pbest)

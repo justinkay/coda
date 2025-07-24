@@ -94,7 +94,7 @@ def do_model_selection_experiment(dataset, oracle, args, loss_fn, seed=0):
         regret_loss = true_losses[best_model_idx_pred] - best_loss
         cumulative_regret_loss += regret_loss
         print("Regret at", m+1, ":", regret_loss)
-        # print("Cuml Regret at", m+1, ":", cumulative_regret_loss)
+        print("Cuml Regret at", m+1, ":", cumulative_regret_loss)
         mlflow.log_metric("regret", regret_loss.item(), step=m+1)
         mlflow.log_metric("cumulative regret", cumulative_regret_loss.item(), step=m+1)
 
