@@ -120,10 +120,15 @@ def main():
                    help='Maximum number of concurrent SLURM jobs (default: 32)')
     p.add_argument('--polling-interval', type=int, default=30,
                    help='Seconds between job status checks (default: 30)')
+    p.add_argument('--tasks', default='all')
     args = p.parse_args()
 
-    tasks = [f[:-3] for f in os.listdir(args.pred_dir)
+    if args.tasks == 'all':
+        tasks = [f[:-3] for f in os.listdir(args.pred_dir)
              if f.endswith('.pt') and not f.endswith('_labels.pt')]
+    else:
+        tasks = args.tasks.split(',')
+
     tasks.sort()
     methods = [m.strip() for m in args.methods.split(',') if m.strip()]
 
@@ -148,26 +153,28 @@ def main():
             ]
 
             # allow modifying coda hparams through this script
-            params_match = re.search(r'coda-lr=([0-9.]+)-mult=([0-9.]+)', method)
+            params_match = re.search(r'-lr=([0-9.]+)', method)
             if params_match:
                 cmd.extend(['--learning-rate', params_match.group(1)])
-                cmd.extend(['--multiplier', params_match.group(2)])
-                print("launching with lr", params_match.group(1), "and multiplier", params_match.group(2))
+                print("launching with lr", params_match.group(1))
 
-            # params_match = re.search(r'coda-lr=([0-9.]+)-mult=([0-9.]+)-alpha=([0-9.]+)', method)
-            # if params_match:
-            #     cmd.extend(['--learning-rate', params_match.group(1)])
-            #     cmd.extend(['--multiplier', params_match.group(2)])
-            #     cmd.extend(['--alpha', params_match.group(3)])
-            #     print("launching with lr", params_match.group(1), "and multiplier", params_match.group(2), "and alpha", params_match.group(3))
+            params_match = re.search(r'-alpha=([0-9.]+)', method)
+            if params_match:
+                cmd.extend(['--alpha', params_match.group(1)])
+                print("launching with alpha", params_match.group(1))
+
+            params_match = re.search(r'-mult=([0-9.]+)', method)
+            if params_match:
+                cmd.extend(['--multiplier', params_match.group(1)])
+                print("launching with multiplier", params_match.group(1))
 
             if '-no-prefilter' in method:
                 cmd.extend(['--prefilter-n', '0'])
                 print("Launching without prefilter")
 
-            # if '-beta' in method:
-            #     cmd.extend(['--beta',])
-            #     print("launching with beta approx")
+            if '-no-diag' in method:
+                cmd.extend(['--no-diag-prior',])
+                print("Launching without diagonal prior")
 
             job_queue.append(cmd)
     

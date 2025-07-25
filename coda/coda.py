@@ -45,12 +45,21 @@ def create_confusion_matrices(true_labels: torch.Tensor,
 
 
 def initialize_dirichlets(soft_confusion: torch.Tensor,
-                          prior_strength: float) -> torch.Tensor:
+                          prior_strength: float,
+                          disable_diag_prior=False) -> torch.Tensor:
     H, C, _ = soft_confusion.shape
-    base = torch.full((C, C), 1.0 / (C - 1),
-                        dtype=soft_confusion.dtype,
-                        device=soft_confusion.device)
-    base.fill_diagonal_(1.0)
+
+    if disable_diag_prior:
+        # uniform - 2 pseudo counts per row to match diag method
+        base = torch.full((C, C), 2 / C,
+                          dtype=soft_confusion.dtype,
+                          device=soft_confusion.device)
+    else:
+        base = torch.full((C, C), 1.0 / (C - 1),
+                            dtype=soft_confusion.dtype,
+                            device=soft_confusion.device)
+        base.fill_diagonal_(1.0)
+
     base = base.unsqueeze(0).expand(H, C, C)
     return base + prior_strength * soft_confusion
 
@@ -94,9 +103,11 @@ def compute_pbest_beta_batched(alpha_batch: torch.Tensor,  # (B_, C_, C, H)
         if _DEBUG: _check(cdf, "cdf")
 
         log_cdf = torch.log(cdf.clamp_min(eps))
-        prod_excl = torch.exp(log_cdf.sum(1, keepdim=True) - log_cdf)
+        # clamp to max float32 (log(3.4 * 1e38) = ~88) to avoid inf; 
+        # rare that this happens (only observed with uniform prior)
+        prod_excl = torch.exp( (log_cdf.sum(1, keepdim=True) - log_cdf).clamp_max(85) ) 
         integrand = pdf * prod_excl
-        if _DEBUG: _check(integrand, "integrand")
+        if _DEBUG: _check(integrand, "integrand") # probably prod_excl's fault if bad
 
         prob = torch.trapz(integrand, x.squeeze(), dim=2)
         if _DEBUG: _check(prob, "Pbest(beta)") 
@@ -164,11 +175,16 @@ class CODA(ModelSelector):
                  prefilter_n=0,
                  alpha=0.9,
                  learning_rate=0.01,
-                 multiplier=2.0):
+                 multiplier=2.0,
+                 disable_diag_prior=False,  # for ablation 1
+                 q='eig'                    # for ablation 2
+                 ):
         self.dataset = dataset
         self.device = dataset.preds.device
         self.H, self.N, self.C = dataset.preds.shape
         self.prefilter_n = prefilter_n
+        self.disable_diag_prior = disable_diag_prior
+        self.q = q
 
         # hyperparams
         self.prior_strength = (1 - alpha)
@@ -178,7 +194,7 @@ class CODA(ModelSelector):
         ens_pred = Ensemble(dataset.preds).get_preds()
         ens_pred_hard = ens_pred.argmax(-1)  # pseudo labels
         soft_conf = create_confusion_matrices(ens_pred_hard, dataset.preds, mode='soft')
-        self.dirichlets = multiplier * initialize_dirichlets(soft_conf, self.prior_strength)
+        self.dirichlets = multiplier * initialize_dirichlets(soft_conf, self.prior_strength, self.disable_diag_prior)
         self.update_pi_hat()
 
         self.labeled_idxs, self.labels = [], []
@@ -193,7 +209,9 @@ class CODA(ModelSelector):
                    prefilter_n=args.prefilter_n,
                    alpha=args.alpha,
                    learning_rate=args.learning_rate,
-                   multiplier=args.multiplier)
+                   multiplier=args.multiplier,
+                   disable_diag_prior=args.no_diag_prior,
+                   q=args.q)
 
     def _prefilter(self, idxs):
         # filter any data points where every model disagrees - waste of compute
@@ -261,7 +279,11 @@ class CODA(ModelSelector):
         return torch.cat(eig_chunks), candidate_ids
 
     def get_next_item_to_label(self):
-        q_vals, cand = self.eig_batched()
+        if self.q == 'eig':
+            q_vals, cand = self.eig_batched()
+        else:
+            # TODO for ablation 2
+            raise NotImplementedError(self.q)
 
         if _DEBUG_VIZ:
             img = plot_bar(q_vals)
