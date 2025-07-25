@@ -234,6 +234,9 @@ class CODA(ModelSelector):
         self.pi_hat = self.pi_hat / self.pi_hat.sum()
 
     def eig_batched(self, chunk_size: int = 100, update_weight: float = 1.0, num_points: int = 256) -> torch.Tensor:
+        """
+            TODO: Document shapes etc.
+        """
         candidate_ids = self._prefilter(self.unlabeled_idxs) or self.unlabeled_idxs
         classifier_preds = self.dataset.preds.permute(1, 0, 2)
         candidates = torch.tensor(candidate_ids, device=classifier_preds.device)
@@ -280,9 +283,18 @@ class CODA(ModelSelector):
 
     def get_next_item_to_label(self):
         if self.q == 'eig':
+            # default; expected information gain
             q_vals, cand = self.eig_batched()
+        elif self.q == 'iid':
+            # random sampling (used for ablation 2)
+            cand = self._prefilter(self.unlabeled_idxs) or self.unlabeled_idxs
+            q_vals = 1/len(cand) * torch.ones(len(cand), device=self.device)
+        elif self.q == 'uncertainty':
+            # uncertainty-based sampling (used for ablation 2)
+            from coda.baselines.uncertainty import uncertainty
+            cand = self._prefilter(self.unlabeled_idxs) or self.unlabeled_idxs
+            q_vals = uncertainty(self.dataset.preds, cand)
         else:
-            # TODO for ablation 2
             raise NotImplementedError(self.q)
 
         if _DEBUG_VIZ:
@@ -290,6 +302,7 @@ class CODA(ModelSelector):
             mlflow.log_image(img, key="EIG", step=self.step)
             # img.save(str(self.step)+'-eig.png')
 
+        # greedy sampling with random selection between ties
         best = q_vals.max()
         ties = torch.isclose(q_vals, best, rtol=1e-8)
         idx_local = random.choice(torch.nonzero(ties, as_tuple=True)[0].tolist()) \

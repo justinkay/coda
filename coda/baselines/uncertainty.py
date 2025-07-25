@@ -3,6 +3,14 @@ import torch
 from coda.baselines.iid import IID
 
 
+def uncertainty(preds, d_u_idxs):
+    mean_pred_probs = preds.mean(dim=0) # average over all models
+    epsilon = 1e-8
+    entropy_per_data_point = -torch.sum(mean_pred_probs * torch.log(mean_pred_probs + epsilon), dim=-1)
+    entropy_per_unlabeled_data_point = entropy_per_data_point[d_u_idxs]
+    return entropy_per_unlabeled_data_point
+
+
 class Uncertainty(IID):
     """
     Uncertainty sampling for active model selection.
@@ -25,10 +33,7 @@ class Uncertainty(IID):
         self.stochastic = False 
 
     def get_next_item_to_label(self):
-        mean_pred_probs = self.dataset.preds.mean(dim=0) # average over all models
-        epsilon = 1e-8
-        entropy_per_data_point = -torch.sum(mean_pred_probs * torch.log(mean_pred_probs + epsilon), dim=-1)
-        entropy_per_unlabeled_data_point = entropy_per_data_point[self.d_u_idxs]
+        entropy_per_unlabeled_data_point = uncertainty(self.dataset.preds, self.d_u_idxs)
         chosen_q, chosen_idx_local = torch.max(entropy_per_unlabeled_data_point, dim=0)
         ties = (entropy_per_unlabeled_data_point == chosen_q)
         if ties.sum() > 1:
