@@ -168,6 +168,11 @@ def main():
                 cmd.extend(['--multiplier', params_match.group(1)])
                 print("launching with multiplier", params_match.group(1))
 
+            params_match = re.search(r'-q=([a-z]+)', method)
+            if params_match:
+                cmd.extend(['--q', params_match.group(1)])
+                print("launching with q", params_match.group(1))
+
             if '-no-prefilter' in method:
                 cmd.extend(['--prefilter-n', '0'])
                 print("Launching without prefilter")

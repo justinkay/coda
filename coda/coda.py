@@ -103,9 +103,9 @@ def compute_pbest_beta_batched(alpha_batch: torch.Tensor,  # (B_, C_, C, H)
         if _DEBUG: _check(cdf, "cdf")
 
         log_cdf = torch.log(cdf.clamp_min(eps))
-        # clamp to max float32 (log(3.4 * 1e38) = ~88) to avoid inf; 
+        # clamp to min/max float32 +-(log(3.4 * 1e38) = ~88) to avoid inf; 
         # rare that this happens (only observed with uniform prior)
-        prod_excl = torch.exp( (log_cdf.sum(1, keepdim=True) - log_cdf).clamp_max(85) ) 
+        prod_excl = torch.exp( (log_cdf.sum(1, keepdim=True) - log_cdf).clamp(-80,80) ) 
         integrand = pdf * prod_excl
         if _DEBUG: _check(integrand, "integrand") # probably prod_excl's fault if bad
 
@@ -177,7 +177,7 @@ class CODA(ModelSelector):
                  learning_rate=0.01,
                  multiplier=2.0,
                  disable_diag_prior=False,  # for ablation 1
-                 q='eig'                    # for ablation 2
+                 q='eig',                   # for ablation 2
                  ):
         self.dataset = dataset
         self.device = dataset.preds.device
@@ -233,7 +233,7 @@ class CODA(ModelSelector):
         self.pi_hat = self.pi_hat_xi.sum(0)
         self.pi_hat = self.pi_hat / self.pi_hat.sum()
 
-    def eig_batched(self, chunk_size: int = 100, update_weight: float = 1.0, num_points: int = 256) -> torch.Tensor:
+    def eig_batched(self, chunk_size: int = 100, update_weight: float = 1.0, num_points: int = 256):
         """
             TODO: Document shapes etc.
         """
@@ -251,11 +251,11 @@ class CODA(ModelSelector):
         beta_cc_before  = beta_cc_before.permute(0,3,1,2)   # (1, C, 1, H)
         pbest_rows_before = compute_pbest_beta_batched(alpha_cc_before, beta_cc_before).squeeze(-2) # (1, C, H)
 
-        mixture0 = (self.pi_hat[:, None] * pbest_rows_before).sum(1)   # (1,H) ; no-op for beta approx
+        mixture0 = (self.pi_hat[:, None] * pbest_rows_before).sum(1)   # (1,H)
         H_before = -(mixture0.clamp_min(1e-12).mul(mixture0.clamp_min(1e-12).log2())).sum(-1)
 
         # broadcast helpers
-        mixture0_bc = mixture0.view(1, 1, H) # (1,1,H)
+        mixture0_bc = mixture0.view(1, 1, H)      # (1,1,H)
         pi_hat_row  = self.pi_hat.view(1, C, 1)   # (1,C,1)
 
         eig_chunks = []
@@ -300,7 +300,7 @@ class CODA(ModelSelector):
         if _DEBUG_VIZ:
             img = plot_bar(q_vals)
             mlflow.log_image(img, key="EIG", step=self.step)
-            # img.save(str(self.step)+'-eig.png')
+            img.save('eig-'+str(self.step)+'.png')
 
         # greedy sampling with random selection between ties
         best = q_vals.max()
@@ -337,7 +337,7 @@ class CODA(ModelSelector):
         if _DEBUG_VIZ:
             img = plot_bar(pbest)
             mlflow.log_image(img, key="PBest", step=self.step)
-            # img.save('pbest-'+str(self.step)+'.png')
+            img.save('pbest-'+str(self.step)+'.png')
 
         # track how many times we've done this
         self.step += 1 

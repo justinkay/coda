@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument("--multiplier", default=2.0, type=float) # TODO: change to temperature
     parser.add_argument("--prefilter-n", type=int, default=0, help="Subsample n test data points each iteration. Useful for speeding up EIG calculations on large datsets. Disabled by default.")
     parser.add_argument("--no-diag-prior", action="store_true", help="Disable diagonal prior (Eq 7); used for ablation 1.")
-    parser.add_argument("--q", default="eig", help="Acquisition function {eig, random, uncertainty}. Default EIG (eq 17). Used for ablation 2.")
+    parser.add_argument("--q", default="eig", help="Acquisition function {eig, iid, uncertainty}. Default EIG (eq 17). Used for ablation 2.")
 
     return parser.parse_args()
 
