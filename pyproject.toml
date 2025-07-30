@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coda"
+version = "0.1.0"
+description = "Consensus-Driven Active Model Selection"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [{name="Unknown"}]
+dependencies = [
+    "mlflow",
+    "torch",
+    "tqdm",
+    "numpy",
+    "matplotlib<3.10" # for 'tostring_rgb' method to plot to mlflow
+]
+
+[project.scripts]
+coda-main = "main:main"
+
+[tool.setuptools]
+packages = ["coda", "coda.baselines"]
