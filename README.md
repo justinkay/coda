@@ -24,7 +24,9 @@ See [main.py](main.py) for the full list of command line options.
 
 ## View results
 
-Results are saved to a SQLite database managed by MLFlow. See scripts in `paper/` for how to query the database to summarize results. You can also visualize results through the MLFlow UI using `mlflow ui --backend-store-uri sqlite:///coda.sqlite`, however you will need to first aggregate results from different seeds (TODO: Aggregation script coming soon).
+Results are saved to a SQLite database managed by MLFlow. See scripts in `paper/` for how to query the database to summarize results. 
+
+You can also visualize results through the MLFlow UI using `mlflow ui --backend-store-uri sqlite:///coda.sqlite`, however you will need to first aggregate results from different seeds by running `python scripts/aggregate_results.py`.
 
 ## Reference
 
