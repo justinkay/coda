@@ -1,10 +1,30 @@
 # Consensus-Driven Active Model Selection 
 
-Documentation coming soon!
+## Install
 
-## Benchmark dataset
+**1. Install PyTorch and torchvision.** Follow the [official install guide](https://pytorch.org/get-started/locally/) to install the correct versions for your CUDA version or CPU.
+
+**2. Install CODA.** Clone this repository and run:
+
+```bash
+pip install -e .
+```
+
+## Dataset download
 
 [Data download (3.25GB)](https://drive.google.com/file/d/1H8zXwAGkkAQP5L1gofpeF69jeIZqzPaW/view?usp=sharing)
+
+## Run an active model selection experiment
+
+To run 5 random seeds of CODA with default hyperparameters on CIFAR10-high:
+
+```python main.py --task cifar10_5592 --method coda```
+
+See [main.py](main.py) for the full list of command line options.
+
+## View results
+
+Results are saved to a SQLite database managed by MLFlow. See scripts in `paper/` for how to query the database to summarize results. You can also visualize results through the MLFlow UI using `mlflow ui --backend-store-uri sqlite:///coda.sqlite`, however you will need to first aggregate results from different seeds (TODO: Aggregation script coming soon).
 
 ## Reference
 
