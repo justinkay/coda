@@ -1,5 +1,22 @@
 # Consensus-Driven Active Model Selection 
 
+
+
+The widespread availability of off-the-shelf machine learning models---for instance, the more than 1.9M currently available on [HuggingFace Models](https://huggingface.co/models?sort=trending)---poses a challenge: which model, of the
+many available candidates, should be chosen for a given data analysis task?
+
+We introduce <b>CODA</b>, a <b>co</b>nsensus-<b>d</b>riven method for <b>a</b>ctive model selection, to answer this question as efficiently as possible:
+
+<br>
+<img width="14575" height="4505" alt="coda-cameraready" src="https://github.com/user-attachments/assets/77a4c0fc-9ca4-4c2c-a6c3-f110b774ea7f" />
+<br>
+<br>
+ 
+CODA uses the consensus and disagreement between models in the candidate pool to guide
+the label acquisition process, and Bayesian inference to update beliefs about which model is best as more information is collected. CODA outperforms existing methods for active model selection significantly, 
+reducing the annotation effort required to discover the best model by upwards of 70% compared to the previous state-of-the-art.
+
+
 ## Install
 
 **1. Install PyTorch and torchvision.** Follow the [official install guide](https://pytorch.org/get-started/locally/) to install the correct versions for your CUDA version or CPU.
