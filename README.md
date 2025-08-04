@@ -12,8 +12,8 @@ We introduce <b>CODA</b>, a <b>co</b>nsensus-<b>d</b>riven method for <b>a</b>ct
 <br>
 <br>
  
-CODA uses the consensus and disagreement between models in the candidate pool to guide
-the label acquisition process, and Bayesian inference to update beliefs about which model is best as more information is collected. CODA outperforms existing methods for active model selection significantly, 
+<b>CODA</b> uses the consensus and disagreement between models in the candidate pool to guide
+the label acquisition process, and Bayesian inference to update beliefs about which model is best as more information is collected. <b>CODA</b> outperforms existing methods for active model selection significantly, 
 reducing the annotation effort required to discover the best model by upwards of 70% compared to the previous state-of-the-art.
 
 
@@ -33,7 +33,7 @@ pip install -e .
 
 ## Run an active model selection experiment
 
-To run 5 random seeds of CODA with default hyperparameters on CIFAR10-high:
+To run 5 random seeds of <b>CODA</b> with default hyperparameters on CIFAR10-high:
 
 ```python main.py --task cifar10_5592 --method coda```
 
@@ -51,6 +51,6 @@ You can also visualize results through the MLFlow UI using `mlflow ui --backend-
 
 [Justin Kay](https://justinkay.github.io), [Grant Van Horn](https://gvanhorn38.github.io/), [Subhransu Maji](https://people.cs.umass.edu/~smaji/), [Daniel Sheldon](https://people.cs.umass.edu/~sheldon/) and [Sara Beery](https://beerys.github.io/).
 
-The widespread availability of off-the-shelf machine learning models poses a challenge: which model, of the many available candidates, should be chosen for a given data analysis task? This question of model selection is traditionally answered by collecting and annotating a validation dataset---a costly and time-intensive process. We propose a method for active model selection, using predictions from candidate models to prioritize the labeling of test data points that efficiently differentiate the best candidate. Our method, CODA, performs consensus-driven active model selection by modeling relationships between classifiers, categories, and data points within a probabilistic framework. The framework uses the consensus and disagreement between models in the candidate pool to guide the label acquisition process, and Bayesian inference to update beliefs about which model is best as more information is collected. We validate our approach by curating a collection of 26 benchmark tasks capturing a range of model selection scenarios. CODA outperforms existing methods for active model selection significantly, reducing the annotation effort required to discover the best model by upwards of 70% compared to the previous state-of-the-art.
+The widespread availability of off-the-shelf machine learning models poses a challenge: which model, of the many available candidates, should be chosen for a given data analysis task? This question of model selection is traditionally answered by collecting and annotating a validation dataset---a costly and time-intensive process. We propose a method for active model selection, using predictions from candidate models to prioritize the labeling of test data points that efficiently differentiate the best candidate. Our method, <b>CODA</b>, performs <b>co</b>nsensus-<b>d</b>riven <b>a</b>ctive model selection by modeling relationships between classifiers, categories, and data points within a probabilistic framework. The framework uses the consensus and disagreement between models in the candidate pool to guide the label acquisition process, and Bayesian inference to update beliefs about which model is best as more information is collected. We validate our approach by curating a collection of 26 benchmark tasks capturing a range of model selection scenarios. CODA outperforms existing methods for active model selection significantly, reducing the annotation effort required to discover the best model by upwards of 70% compared to the previous state-of-the-art.
 
 ICCV 2025 Highlight.
