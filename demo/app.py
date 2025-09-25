@@ -8,6 +8,8 @@ import random
 from PIL import Image
 from tqdm import tqdm
 from collections import OrderedDict
+import matplotlib.pyplot as plt
+import numpy as np
 
 with open('iwildcam_demo_annotations.json', 'r') as f:
     data = json.load(f)
@@ -71,28 +73,90 @@ def check_answer(user_choice):
     next_image = get_random_image()
     return result, next_image
 
+def create_probability_chart():
+    """Create a bar chart showing probability each model is best"""
+    models = [f"Model {i}" for i in range(1, 11)]
+    probabilities = np.random.random(10)  # Random probabilities for now
+    
+    # Find the index of the highest probability
+    best_idx = np.argmax(probabilities)
+    
+    fig, ax = plt.subplots(figsize=(6, 2.5))
+    
+    # Create colors array - highlight the best model
+    colors = ['orange' if i == best_idx else 'steelblue' for i in range(len(models))]
+    bars = ax.bar(models, probabilities, color=colors, alpha=0.7)
+    
+    # Add text above the highest bar
+    ax.text(best_idx, probabilities[best_idx] + 0.05, 'Current best guess', 
+            ha='center', va='bottom', fontsize=9, fontweight='bold')
+    
+    ax.set_ylabel('Probability model is best', fontsize=10)
+    ax.set_xlabel('Models', fontsize=10)
+    ax.set_title('Model Selection Probabilities', fontsize=11)
+    ax.set_ylim(0, 1.2)
+    
+    # Rotate x-axis labels for better readability
+    plt.xticks(rotation=45, ha='right', fontsize=8)
+    plt.yticks(fontsize=8)
+    plt.tight_layout()
+    
+    return fig
+
+def create_accuracy_chart():
+    """Create a bar chart showing true accuracy of each model"""
+    models = [f"Model {i}" for i in range(1, 11)]
+    accuracies = np.random.random(10)  # Random accuracies for now
+    
+    # Find the index of the highest accuracy
+    best_idx = np.argmax(accuracies)
+    
+    fig, ax = plt.subplots(figsize=(6, 2.5))
+    
+    # Create colors array - highlight the best model
+    colors = ['red' if i == best_idx else 'forestgreen' for i in range(len(models))]
+    bars = ax.bar(models, accuracies, color=colors, alpha=0.7)
+    
+    # Add text above the highest bar
+    ax.text(best_idx, accuracies[best_idx] + 0.05, 'True best model', 
+            ha='center', va='bottom', fontsize=9, fontweight='bold')
+    
+    ax.set_ylabel('True (oracle) \naccuracy of model', fontsize=10)
+    ax.set_xlabel('Models', fontsize=10)
+    ax.set_title('True Model Accuracies', fontsize=11)
+    ax.set_ylim(0, 1.2)
+    
+    # Rotate x-axis labels for better readability
+    plt.xticks(rotation=45, ha='right', fontsize=8)
+    plt.yticks(fontsize=8)
+    plt.tight_layout()
+    
+    return fig
+
 # Create the Gradio interface
-with gr.Blocks(title="Wildlife Photo Classification Challenge", 
+with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge", 
                theme=gr.themes.Soft()) as demo:
-    gr.Markdown("""
-    # 🦁 Wildlife Photo Classification Challenge
+    gr.Markdown("# Consensus-Driven Active Model Selection: Wildlife Photo Classification Challenge")
     
-    Test your knowledge of African and South American wildlife! 
-    Look at each photo and try to identify the species.
-    
-    **Instructions:**
-    - Look carefully at the image
-    - Click the button for the species you think it is
-    - Click "I don't know" if you're not sure
-    - You'll get feedback on whether you were correct, then move to the next image
-    """)
+    # Two panels with bar charts
+    with gr.Row():
+        with gr.Column(scale=1):
+            prob_plot = gr.Plot(
+                value=create_probability_chart(),
+                show_label=False
+            )
+        with gr.Column(scale=1):
+            accuracy_plot = gr.Plot(
+                value=create_accuracy_chart(),
+                show_label=False
+            )
     
     with gr.Row():
         image_display = gr.Image(
             label="Identify this animal:", 
             value=get_random_image(),
-            height=500,
-            width=700
+            height=400,
+            width=550
         )
     
     gr.Markdown("### Which species do you think this is?")
