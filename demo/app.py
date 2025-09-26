@@ -91,7 +91,6 @@ current_image_info = None
 # dataset already initialized above
 # image_filenames already initialized above
 iteration_count = 0
-max_iterations = 50
 
 def get_model_predictions(chosen_idx):
     """Get model predictions and scores for a specific image"""
@@ -140,9 +139,6 @@ def get_next_coda_image():
     """Get the next image that CODA wants labeled"""
     global current_image_info, coda_selector, iteration_count
 
-    if iteration_count >= max_iterations:
-        return None, "Demo complete! Maximum iterations reached."
-
     # Get next item from CODA
     chosen_idx, selection_prob = coda_selector.get_next_item_to_label()
 
@@ -169,7 +165,7 @@ def get_next_coda_image():
         try:
             image = Image.open(image_path)
             predictions = get_model_predictions(chosen_idx)
-            return image, f"Iteration {iteration_count + 1}/{max_iterations}: CODA selected this image for labeling", predictions
+            return image, f"Iteration {iteration_count}: CODA selected this image for labeling", predictions
         except Exception as e:
             print(f"Error loading image {image_path}: {e}")
             return None, f"Error loading image: {e}", "No predictions available"
@@ -208,11 +204,8 @@ def check_answer(user_choice):
     accuracy_plot = create_accuracy_chart()
 
     # Load next image
-    if iteration_count < max_iterations:
-        next_image, status, predictions = get_next_coda_image()
-        return result, status, next_image, predictions, prob_plot, accuracy_plot
-    else:
-        return result + "\n\n🎯 Demo complete! CODA has finished active model selection.", "Demo completed", None, "Demo completed", prob_plot, accuracy_plot
+    next_image, status, predictions = get_next_coda_image()
+    return result, status, next_image, predictions, prob_plot, accuracy_plot
 
 def create_probability_chart():
     """Create a bar chart showing probability each model is best"""
@@ -379,27 +372,69 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
     # Popup component
     with gr.Group(visible=True, elem_classes="popup-overlay") as popup_overlay:
         with gr.Group(elem_classes="popup-content"):
-            gr.Markdown("""
-            # CODA: Consensus-Driven Active Model Selection 
-            
+            # Main intro content
+            intro_content = gr.Markdown("""
+            # CODA: Consensus-Driven Active Model Selection
+
             ## Wildlife Photo Classification Challenge
 
-            You are a wildlife ecologist who has just collected a season's worth of imagery from cameras 
-            deployed in Africa and South America. You want to know what species occur in this imagery, 
-            and you are hoping to take advantage of pre-trained species classifiers to give you answers quickly. 
-            But which one should you use? 
-            
-            Instead of labeling a large validation set, our new method, **CODA**, enables you to perform **active model selection**. 
-            That is, CODA uses predictions from candidate models to guide the labeling process, querying you (a species identification expert) 
+            You are a wildlife ecologist who has just collected a season's worth of imagery from cameras
+            deployed in Africa and South America. You want to know what species occur in this imagery,
+            and you are hoping to take advantage of pre-trained species classifiers to give you answers quickly.
+            But which one should you use?
+
+            Instead of labeling a large validation set, our new method, **CODA**, enables you to perform **active model selection**.
+            That is, CODA uses predictions from candidate models to guide the labeling process, querying you (a species identification expert)
             for labels on a select few images that will most efficiently differentiate between your candidate machine learning models.
 
-            This demo lets you try CODA yourself! First, become a species identification expert by reading our classification guide 
-            so that you will be equipped to provide ground truth labels. Then, watch as CODA narrows down the best model over time 
+            This demo lets you try CODA yourself! First, become a species identification expert by reading our classification guide
+            so that you will be equipped to provide ground truth labels. Then, watch as CODA narrows down the best model over time
             as you provide labels for the query images. You will see that with your input CODA is able to identify the best model candidate
             with as few as ten (correctly) labeled images.
             """)
 
+            # Species guide content (initially hidden)
+            species_guide_content = gr.Markdown("""
+            # Species Classification Guide
+
+            Learn to identify the six wildlife species in this demo:
+
+            ## Jaguar
+            *Panthera onca*
+
+            [Placeholder for jaguar image and description]
+
+            ## Ocelot
+            *Leopardus pardalis*
+
+            [Placeholder for ocelot image and description]
+
+            ## Mountain Lion
+            *Puma concolor*
+
+            [Placeholder for mountain lion image and description]
+
+            ## Common Eland
+            *Tragelaphus oryx*
+
+            [Placeholder for common eland image and description]
+
+            ## Waterbuck
+            *Kobus ellipsiprymnus*
+
+            [Placeholder for waterbuck image and description]
+
+            ## African Wild Dog
+            *Lycaon pictus*
+
+            [Placeholder for african wild dog image and description]
+            """, visible=False)
+
+            gr.Markdown("<br>")  # Add some spacing
+
             with gr.Row():
+                back_button = gr.Button("← Back to Intro", variant="secondary", size="lg", visible=False)
+                guide_button = gr.Button("View Species Classification Guide", variant="secondary", size="lg")
                 popup_start_button = gr.Button("Start Demo", variant="primary", size="lg")
     
     # Two panels with bar charts
@@ -476,6 +511,14 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
         acc_plot = create_accuracy_chart()
         return None, "Demo reset. Click 'Start CODA Demo' to begin.", "### Model Predictions\n\n*Start the demo to see model votes!*", prob_plot, acc_plot, "", gr.update(visible=True)
 
+    def show_species_guide():
+        # Show species guide, hide intro content, show back button, hide guide button
+        return gr.update(visible=False), gr.update(visible=True), gr.update(visible=True), gr.update(visible=False)
+
+    def show_intro():
+        # Show intro content, hide species guide, hide back button, show guide button
+        return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
+
     popup_start_button.click(
         fn=start_demo,
         outputs=[image_display, status_display, model_predictions_display, prob_plot, accuracy_plot, popup_overlay, result_display]
@@ -484,6 +527,16 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
     start_over_button.click(
         fn=start_over,
         outputs=[image_display, status_display, model_predictions_display, prob_plot, accuracy_plot, result_display, popup_overlay]
+    )
+
+    guide_button.click(
+        fn=show_species_guide,
+        outputs=[intro_content, species_guide_content, back_button, guide_button]
+    )
+
+    back_button.click(
+        fn=show_intro,
+        outputs=[intro_content, species_guide_content, back_button, guide_button]
     )
 
     for btn in species_buttons:
