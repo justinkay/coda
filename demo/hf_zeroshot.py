@@ -34,6 +34,16 @@ SPECIES_MAP = OrderedDict([
 # Class names
 CLASS_NAMES = list(SPECIES_MAP.values())
 
+# More descriptive class names for better zero-shot performance
+DESCRIPTIVE_CLASS_NAMES = [
+    "a jaguar cat",
+    "an ocelot cat",
+    "a mountain lion cougar",
+    "a common eland antelope",
+    "a waterbuck antelope",
+    "an African wild dog"
+]
+
 # Models to test
 MODELS = [
     "openai/clip-vit-large-patch14",
@@ -61,22 +71,73 @@ def load_demo_annotations():
     return image_metadata
 
 def run_bioclip_inference(image_paths, class_names):
-    """Run zero-shot inference using BioCLIP with open_clip."""
-    if not OPEN_CLIP_AVAILABLE:
-        print("open_clip not available, skipping BioCLIP")
+    """Run zero-shot inference using BioCLIP with pybioclip."""
+    try:
+        from bioclip import CustomLabelsClassifier
+        print("Loading BioCLIP model...")
+
+        # Create classifier with custom labels
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        classifier = CustomLabelsClassifier(
+            cls_ary=class_names,
+            device=device
+        )
+
+        results = {}
+
+        for i, image_path in enumerate(image_paths):
+            if i % 10 == 0:
+                print(f"Processing image {i+1}/{len(image_paths)}: {os.path.basename(image_path)}")
+
+            try:
+                # Use classifier's predict function
+                predictions = classifier.predict(image_path, k=len(class_names))
+
+                # Convert predictions to our format
+                scores = {}
+
+                # Initialize all classes with 0
+                for class_name in class_names:
+                    scores[class_name] = 0.0
+
+                # Fill in the predictions - predictions is a list of dicts with format:
+                # [{'file_name': '...', 'classification': 'Ocelot', 'score': 0.999}, ...]
+                for pred in predictions:
+                    class_name = pred['classification']
+                    score = pred['score']
+                    if class_name in scores:
+                        scores[class_name] = score
+
+                results[os.path.basename(image_path)] = scores
+
+            except Exception as e:
+                print(f"Error processing {image_path}: {e}")
+                # Fill with uniform probabilities if processing fails
+                uniform_prob = 1.0 / len(class_names)
+                results[os.path.basename(image_path)] = {class_name: uniform_prob for class_name in class_names}
+
+        return results
+
+    except ImportError:
+        print("bioclip not available, skipping BioCLIP")
+        return None
+    except Exception as e:
+        print(f"Error loading BioCLIP: {e}")
         return None
 
-    print("Loading BioCLIP model...")
+def run_siglip_inference(image_paths, class_names):
+    """Run zero-shot inference using SigLIP with manual CLIP-style computation."""
+    print("Loading SigLIP model...")
     try:
-        model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:imageomics/bioclip')
-        tokenizer = open_clip.get_tokenizer('hf-hub:imageomics/bioclip')
+        from transformers import AutoProcessor, AutoModel
+
+        model_name = "google/siglip2-so400m-patch16-naflex"
+        processor = AutoProcessor.from_pretrained(model_name)
+        model = AutoModel.from_pretrained(model_name)
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = model.to(device)
         model.eval()
-
-        # Tokenize class names
-        text_tokens = tokenizer(class_names).to(device)
 
         results = {}
 
@@ -86,23 +147,25 @@ def run_bioclip_inference(image_paths, class_names):
                     print(f"Processing image {i+1}/{len(image_paths)}: {os.path.basename(image_path)}")
 
                 try:
-                    # Load and preprocess image
+                    # Load and process image
                     image = Image.open(image_path).convert("RGB")
-                    image_tensor = preprocess_val(image).unsqueeze(0).to(device)
 
-                    # Get embeddings
-                    image_features = model.encode_image(image_tensor)
-                    text_features = model.encode_text(text_tokens)
+                    # Process inputs
+                    inputs = processor(
+                        text=class_names,
+                        images=image,
+                        return_tensors="pt",
+                        padding=True
+                    ).to(device)
 
-                    # Normalize features
-                    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                    # Get outputs
+                    outputs = model(**inputs)
 
-                    # Calculate similarities
-                    similarities = (image_features @ text_features.T).squeeze(0)
+                    # Get similarity scores (logits_per_image)
+                    logits_per_image = outputs.logits_per_image
 
                     # Apply softmax to get probabilities
-                    probabilities = torch.softmax(similarities, dim=0)
+                    probabilities = torch.softmax(logits_per_image, dim=-1).squeeze(0)
 
                     # Convert to dictionary
                     scores = {}
@@ -118,7 +181,7 @@ def run_bioclip_inference(image_paths, class_names):
         return results
 
     except Exception as e:
-        print(f"Error loading BioCLIP: {e}")
+        print(f"Error loading SigLIP: {e}")
         return None
 
 def run_zeroshot_inference(model_name, image_paths, class_names):
@@ -196,9 +259,11 @@ def main():
             print(f"Results file {output_file} already exists, skipping {model_name}")
             continue
 
-        # Handle BioCLIP separately
+        # Handle different models with appropriate methods
         if model_name == "imageomics/bioclip":
             results = run_bioclip_inference(image_paths, CLASS_NAMES)
+        elif model_name == "google/siglip2-so400m-patch16-naflex":
+            results = run_siglip_inference(image_paths, CLASS_NAMES)
         else:
             results = run_zeroshot_inference(model_name, image_paths, CLASS_NAMES)
 
