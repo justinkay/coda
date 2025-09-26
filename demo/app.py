@@ -93,7 +93,7 @@ def create_probability_chart():
     
     ax.set_ylabel('Probability model is best', fontsize=10)
     ax.set_xlabel('Models', fontsize=10)
-    ax.set_title('Model Selection Probabilities', fontsize=11)
+    ax.set_title('CODA Model Selection Probabilities', fontsize=11)
     ax.set_ylim(0, 1.2)
     
     # Rotate x-axis labels for better readability
@@ -101,7 +101,10 @@ def create_probability_chart():
     plt.yticks(fontsize=8)
     plt.tight_layout()
     
-    return fig
+    # Save the figure and close it to prevent memory leaks
+    temp_fig = fig
+    plt.close(fig)
+    return temp_fig
 
 def create_accuracy_chart():
     """Create a bar chart showing true accuracy of each model"""
@@ -131,12 +134,39 @@ def create_accuracy_chart():
     plt.yticks(fontsize=8)
     plt.tight_layout()
     
-    return fig
+    # Save the figure and close it to prevent memory leaks
+    temp_fig = fig
+    plt.close(fig)
+    return temp_fig
 
 # Create the Gradio interface
 with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge", 
-               theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# Consensus-Driven Active Model Selection: Wildlife Photo Classification Challenge")
+               theme=gr.themes.Base(),
+               css="""
+               .subtle-outline {
+                   border: 1px solid var(--border-color-primary) !important;
+                   background: transparent !important;
+                   border-radius: var(--radius-lg);
+                   padding: 1rem;
+               }
+               .subtle-outline .flex {
+                   background-color: white !important;
+               }
+               """) as demo:
+    gr.Markdown("""
+                # Consensus-Driven Active Model Selection (CODA): Wildlife Photo Classification Challenge
+                
+                **Which AI model will classify your data the best?** We introduce **CODA**, a state-of-the-art method for **active model selection**.
+
+                In active model selection, we begin with a completely **unlabeled target dataset**, and aim to **select the best candidate
+                model with as few ground truth labels as possible**. CODA intelligently selects data points that efficiently discriminate
+                between the candidates, empirically outperforming other active model selection techniques by upwards of 70\%.
+
+                **Try it yourself!** You will begin with a completely unlabeled dataset of wildlife imagery collected from real camera trap deployments. 
+                First, use our <a href="">species guide</a> to become an expert in wildlife classification.
+                CODA will ask you to label images one at a time in order to differentiate the top-performing model. You can track CODA's confidence in its choice 
+                over time, and see how this aligns with true model accuracy.
+                """)
     
     # Two panels with bar charts
     with gr.Row():
@@ -146,10 +176,31 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                 show_label=False
             )
         with gr.Column(scale=1):
+            # Hidden accuracy plot (initially not visible)
             accuracy_plot = gr.Plot(
                 value=create_accuracy_chart(),
-                show_label=False
+                show_label=False,
+                visible=False
             )
+            # Container with outline for hidden content
+            with gr.Group(visible=True, elem_classes="subtle-outline") as hidden_group:
+                with gr.Column(elem_classes="flex items-center justify-center h-full"):
+                    # Placeholder text when hidden (now first)
+                    hidden_text = gr.Markdown("""
+                        ### True model performance is hidden
+                                              
+                        Note that in this problem setting the true model performance is assumed to be unknown (that is why we want to perform model selection!)
+                        However, for this demo, we have computed the actual accuracies of each model in order to evaluate CODA's performance.
+                        
+                        Click the button below to reveal the actual accuracy of each model.""",
+                        elem_classes="text-center"
+                    )
+                    # Reveal button (now second)  
+                    reveal_button = gr.Button(
+                        "🔍 Reveal True Model Accuracies",
+                        variant="secondary",
+                        size="lg"
+                    )
     
     with gr.Row():
         image_display = gr.Image(
@@ -186,6 +237,15 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
         fn=check_answer,
         inputs=[gr.State("I don't know")],
         outputs=[result_display, image_display]
+    )
+    
+    # Reveal button functionality
+    def reveal_accuracies():
+        return gr.update(visible=True), gr.update(visible=False)
+    
+    reveal_button.click(
+        fn=reveal_accuracies,
+        outputs=[accuracy_plot, hidden_group]
     )
 
 if __name__ == "__main__":
