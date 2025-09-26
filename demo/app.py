@@ -1,7 +1,6 @@
 import os
 os.environ['GRADIO_TEMP_DIR'] = "tmp/"
 
-
 import gradio as gr
 import json
 import random
@@ -10,6 +9,7 @@ from tqdm import tqdm
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import numpy as np
+
 
 with open('iwildcam_demo_annotations.json', 'r') as f:
     data = json.load(f)
@@ -81,7 +81,7 @@ def create_probability_chart():
     # Find the index of the highest probability
     best_idx = np.argmax(probabilities)
     
-    fig, ax = plt.subplots(figsize=(6, 2.5))
+    fig, ax = plt.subplots(figsize=(6, 2.5), dpi=150)
     
     # Create colors array - highlight the best model
     colors = ['orange' if i == best_idx else 'steelblue' for i in range(len(models))]
@@ -114,7 +114,7 @@ def create_accuracy_chart():
     # Find the index of the highest accuracy
     best_idx = np.argmax(accuracies)
     
-    fig, ax = plt.subplots(figsize=(6, 2.5))
+    fig, ax = plt.subplots(figsize=(6, 2.5), dpi=150)
     
     # Create colors array - highlight the best model
     colors = ['red' if i == best_idx else 'forestgreen' for i in range(len(models))]
@@ -192,7 +192,9 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                         Note that in this problem setting the true model performance is assumed to be unknown (that is why we want to perform model selection!)
                         However, for this demo, we have computed the actual accuracies of each model in order to evaluate CODA's performance.
                         
-                        Click the button below to reveal the actual accuracy of each model.""",
+                        Click the button below to reveal the actual accuracy of each model.
+                                              
+                        """,
                         elem_classes="text-center"
                     )
                     # Reveal button (now second)  
@@ -210,7 +212,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             width=550
         )
     
-    gr.Markdown("### Which species do you think this is?")
+    gr.Markdown("### Which species is this?")
     
     with gr.Row():
         # Create buttons for each species
