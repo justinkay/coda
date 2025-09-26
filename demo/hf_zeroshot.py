@@ -150,12 +150,15 @@ def run_siglip_inference(image_paths, class_names):
                     # Load and process image
                     image = Image.open(image_path).convert("RGB")
 
-                    # Process inputs
+                    # Create prompt templates for SigLIP (as recommended in docs)
+                    prompts = [f"This is a photo of a {class_name.lower()}" for class_name in class_names]
+
+                    # Process inputs with proper padding
                     inputs = processor(
-                        text=class_names,
+                        text=prompts,
                         images=image,
                         return_tensors="pt",
-                        padding=True
+                        padding="max_length"
                     ).to(device)
 
                     # Get outputs
@@ -164,7 +167,10 @@ def run_siglip_inference(image_paths, class_names):
                     # Get similarity scores (logits_per_image)
                     logits_per_image = outputs.logits_per_image
 
-                    # Apply softmax to get probabilities
+                    # Apply sigmoid to get probabilities (SigLIP uses pairwise sigmoid loss)
+                    sigmoid_probs = torch.sigmoid(logits_per_image).squeeze(0)
+
+                    # Convert to relative probabilities using softmax for comparison
                     probabilities = torch.softmax(logits_per_image, dim=-1).squeeze(0)
 
                     # Convert to dictionary
