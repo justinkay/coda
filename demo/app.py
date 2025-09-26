@@ -191,9 +191,9 @@ def check_answer(user_choice):
     else:
         user_class_idx = NAME_TO_CLASS_IDX.get(user_choice, NAME_TO_CLASS_IDX[correct_species])
         if user_choice == correct_species:
-            result = f"🎉 Correct! This is indeed a {correct_species}!"
+            result = f"🎉 Correct! The last image was indeed a {correct_species}!"
         else:
-            result = f"❌ Incorrect. This is a {correct_species}, not a {user_choice}."
+            result = f"❌ Incorrect. This is a {correct_species}, not a {user_choice}. This may mislead the model selection process!"
 
     # Update CODA with the label
     coda_selector.add_label(chosen_idx, user_class_idx, selection_prob)
@@ -205,7 +205,9 @@ def check_answer(user_choice):
 
     # Load next image
     next_image, status, predictions = get_next_coda_image()
-    return result, status, next_image, predictions, prob_plot, accuracy_plot
+    # Create HTML with inline help button for status
+    status_html = f'{status} <span class="inline-help-btn" title="What is this?">?</span>'
+    return result, status_html, next_image, predictions, prob_plot, accuracy_plot
 
 def create_probability_chart():
     """Create a bar chart showing probability each model is best"""
@@ -365,6 +367,147 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                    color: #666 !important;
                    margin-top: -0.5rem !important;
                }
+
+               /* Question mark icon styling */
+               .panel-container {
+                   position: relative;
+               }
+
+               .help-icon {
+                   position: absolute;
+                   top: 5px;
+                   right: 5px;
+                   width: 25px;
+                   height: 25px;
+                   background-color: #f8f9fa;
+                   color: #6c757d;
+                   border: 1px solid #dee2e6;
+                   border-radius: 50%;
+                   display: flex;
+                   align-items: center;
+                   justify-content: center;
+                   cursor: pointer;
+                   font-size: 13px;
+                   font-weight: 600;
+                   z-index: 10;
+                   transition: all 0.2s ease;
+                   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+               }
+
+               .help-icon:hover {
+                   background-color: #e9ecef;
+                   color: #495057;
+                   border-color: #adb5bd;
+                   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+               }
+
+               /* Help popup styles */
+               .help-popup-overlay {
+                   position: fixed;
+                   top: 0;
+                   left: 0;
+                   width: 100%;
+                   height: 100%;
+                   background-color: rgba(0, 0, 0, 0.5);
+                   z-index: 1001;
+                   display: flex;
+                   justify-content: center;
+                   align-items: center;
+               }
+
+               .help-popup-overlay > div {
+                   background: transparent !important;
+                   border: none !important;
+                   padding: 0 !important;
+                   margin: 0 !important;
+               }
+
+               .help-popup-content {
+                   background: white !important;
+                   padding: 1.5rem !important;
+                   border-radius: 0.5rem !important;
+                   max-width: 600px;
+                   width: 90%;
+                   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+                   border: none !important;
+                   margin: 0 !important;
+               }
+
+               .help-popup-content > div {
+                   background: white !important;
+                   border: none !important;
+                   padding: 0 !important;
+                   margin: 0 !important;
+               }
+
+               /* Inline help button */
+               .inline-help-btn {
+                   display: inline-block;
+                   width: 20px;
+                   height: 20px;
+                   background-color: #f8f9fa;
+                   color: #6c757d;
+                   border: 1px solid #dee2e6;
+                   border-radius: 50%;
+                   text-align: center;
+                   line-height: 18px;
+                   cursor: pointer;
+                   font-size: 11px;
+                   font-weight: 600;
+                   margin-left: 8px;
+                   vertical-align: middle;
+                   transition: all 0.2s ease;
+                   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+               }
+
+               .inline-help-btn:hover {
+                   background-color: #e9ecef;
+                   color: #495057;
+                   border-color: #adb5bd;
+                   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+               }
+
+               #hidden-selection-help-btn {
+                   display: none;
+               }
+
+               /* Reduce spacing around status text */
+               .status-text {
+                   margin: 0 !important;
+                   padding: 0 !important;
+               }
+
+               .status-text > div {
+                   margin: 0 !important;
+                   padding: 0 !important;
+               }
+
+               /* Compact model predictions panel */
+               .compact-predictions {
+                   line-height: 1.1 !important;
+                   margin: 0 !important;
+                   padding: 0.1rem !important;
+               }
+
+               .compact-predictions p {
+                   margin: 0.05rem 0 !important;
+               }
+
+               .compact-predictions h3 {
+                   margin: 0 0 0.1rem 0 !important;
+               }
+
+               /* Target the subtle-outline group that contains predictions */
+               .subtle-outline {
+                   padding: 0.3rem !important;
+                   margin: 0.2rem 0 !important;
+               }
+
+               /* Target the column inside the outline */
+               .subtle-outline .flex {
+                   padding: 0 !important;
+                   margin: 0 !important;
+               }
                """) as demo:
     # Main page title
     gr.Markdown("# CODA: Consensus-Driven Active Model Selection", elem_classes="text-center")
@@ -380,7 +523,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
 
             You are a wildlife ecologist who has just collected a season's worth of imagery from cameras
             deployed in Africa and South America. You want to know what species occur in this imagery,
-            and you are hoping to take advantage of pre-trained species classifiers to give you answers quickly.
+            and you hope to use a pre-trained classifier to give you answers quickly.
             But which one should you use?
 
             Instead of labeling a large validation set, our new method, **CODA**, enables you to perform **active model selection**.
@@ -436,22 +579,100 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                 back_button = gr.Button("← Back to Intro", variant="secondary", size="lg", visible=False)
                 guide_button = gr.Button("View Species Classification Guide", variant="secondary", size="lg")
                 popup_start_button = gr.Button("Start Demo", variant="primary", size="lg")
+
+    # Help popups for panels
+    with gr.Group(visible=False, elem_classes="help-popup-overlay") as prob_help_popup:
+        with gr.Group(elem_classes="help-popup-content"):
+            gr.Markdown("""
+            ## CODA Model Selection Probabilities
+
+            This chart shows CODA's current confidence in each candidate model being the best performer.
+
+            **How to read this chart:**
+            - Each bar represents one of the three machine learning models
+            - The height of each bar shows the probability (0-100%) that this model is the best
+            - The orange bar indicates CODA's current best guess
+            - As you provide more labels, CODA updates these probabilities
+
+            **What you'll see:**
+            - Initially, all models have similar probabilities (uniform prior)
+            - As you label images, some models will gain confidence while others lose it
+            - The goal is for one model to clearly emerge as the winner
+
+            [Placeholder: This is where we would explain the specific methodology behind CODA's probability calculations]
+            """)
+            prob_help_close = gr.Button("Close", variant="secondary")
+
+    with gr.Group(visible=False, elem_classes="help-popup-overlay") as acc_help_popup:
+        with gr.Group(elem_classes="help-popup-content"):
+            gr.Markdown("""
+            ## True Model Accuracies
+
+            This chart shows the actual performance of each model on the complete dataset (oracle knowledge).
+
+            **How to read this chart:**
+            - Each bar represents the true accuracy of one model
+            - The red bar shows the actual best-performing model
+            - This information is hidden from CODA during the selection process
+            - You can compare this with CODA's estimates to see how well it's doing
+
+            **Why this matters:**
+            - This represents the "ground truth" that CODA is trying to discover
+            - In real scenarios, you wouldn't know these true accuracies beforehand
+            - The demo shows these to illustrate how CODA's estimates align with reality
+
+            [Placeholder: This is where we would explain how these accuracies were computed and what they mean for the application]
+            """)
+            acc_help_close = gr.Button("Close", variant="secondary")
+
+    with gr.Group(visible=False, elem_classes="help-popup-overlay") as selection_help_popup:
+        with gr.Group(elem_classes="help-popup-content"):
+            gr.Markdown("""
+            ## How CODA Selects Images for Labeling
+
+            This explains how CODA intelligently chooses which images to ask you to label next.
+
+            **CODA's Selection Strategy:**
+            - CODA uses **Expected Information Gain (EIG)** to select the most informative images
+            - It chooses images where the candidate models disagree the most
+            - Each selected image is expected to provide maximum information to distinguish between models
+            - The selection process balances exploration of uncertain regions with exploitation of known patterns
+
+            **Why This Image:**
+            - This particular image was chosen because the models have conflicting predictions
+            - Your label on this image will help CODA update its confidence in each model
+            - The selection probability indicates how strongly CODA wanted to query this specific image
+            - Images with higher disagreement among models are prioritized
+
+            **Active Learning Benefits:**
+            - This approach requires far fewer labels than random sampling
+            - CODA can identify the best model with as few as 10-20 strategically chosen labels
+            - The process is much more efficient than traditional validation approaches
+
+            [Placeholder: This is where we would explain the mathematical details of the EIG calculation and model disagreement metrics]
+            """)
+            selection_help_close = gr.Button("Close", variant="secondary")
     
     # Two panels with bar charts
     with gr.Row():
         with gr.Column(scale=1):
-            prob_plot = gr.Plot(
-                value=None,
-                show_label=False
-            )
+            with gr.Group(elem_classes="panel-container"):
+                prob_help_button = gr.Button("?", elem_classes="help-icon", size="sm")
+                prob_plot = gr.Plot(
+                    value=None,
+                    show_label=False
+                )
         with gr.Column(scale=1):
-            accuracy_plot = gr.Plot(
-                value=create_accuracy_chart(),
-                show_label=False
-            )
+            with gr.Group(elem_classes="panel-container"):
+                acc_help_button = gr.Button("?", elem_classes="help-icon", size="sm")
+                accuracy_plot = gr.Plot(
+                    value=create_accuracy_chart(),
+                    show_label=False
+                )
     
-    # Status display
-    status_display = gr.Markdown("", visible=True)
+    # Status display with help button
+    status_with_help = gr.HTML("", visible=True, elem_classes="status-text")
+    selection_help_button = gr.Button("", visible=False, elem_id="hidden-selection-help-btn")
 
     with gr.Row():
         image_display = gr.Image(
@@ -467,7 +688,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             model_predictions_display = gr.Markdown(
                 "### Model Predictions\n\n*Start the demo to see model votes!*",
                 show_label=False,
-                elem_classes="text-center"
+                elem_classes="text-center compact-predictions"
             )
     
     gr.Markdown("### Which species is this?")
@@ -498,7 +719,9 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
         image, status, predictions = get_next_coda_image()
         prob_plot = create_probability_chart()
         acc_plot = create_accuracy_chart()
-        return image, status, predictions, prob_plot, acc_plot, gr.update(visible=False), ""
+        # Create HTML with inline help button
+        status_html = f'{status} <span class="inline-help-btn" title="What is this?">?</span>'
+        return image, status_html, predictions, prob_plot, acc_plot, gr.update(visible=False), "", gr.update(visible=True)
 
     def start_over():
         global iteration_count, coda_selector
@@ -509,7 +732,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
         # Reset all displays
         prob_plot = create_probability_chart()
         acc_plot = create_accuracy_chart()
-        return None, "Demo reset. Click 'Start CODA Demo' to begin.", "### Model Predictions\n\n*Start the demo to see model votes!*", prob_plot, acc_plot, "", gr.update(visible=True)
+        return None, "Demo reset. Click 'Start CODA Demo' to begin.", "### Model Predictions\n\n*Start the demo to see model votes!*", prob_plot, acc_plot, "", gr.update(visible=True), gr.update(visible=False)
 
     def show_species_guide():
         # Show species guide, hide intro content, show back button, hide guide button
@@ -519,14 +742,32 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
         # Show intro content, hide species guide, hide back button, show guide button
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
 
+    def show_prob_help():
+        return gr.update(visible=True)
+
+    def hide_prob_help():
+        return gr.update(visible=False)
+
+    def show_acc_help():
+        return gr.update(visible=True)
+
+    def hide_acc_help():
+        return gr.update(visible=False)
+
+    def show_selection_help():
+        return gr.update(visible=True)
+
+    def hide_selection_help():
+        return gr.update(visible=False)
+
     popup_start_button.click(
         fn=start_demo,
-        outputs=[image_display, status_display, model_predictions_display, prob_plot, accuracy_plot, popup_overlay, result_display]
+        outputs=[image_display, status_with_help, model_predictions_display, prob_plot, accuracy_plot, popup_overlay, result_display, selection_help_button]
     )
 
     start_over_button.click(
         fn=start_over,
-        outputs=[image_display, status_display, model_predictions_display, prob_plot, accuracy_plot, result_display, popup_overlay]
+        outputs=[image_display, status_with_help, model_predictions_display, prob_plot, accuracy_plot, result_display, popup_overlay, selection_help_button]
     )
 
     guide_button.click(
@@ -539,17 +780,70 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
         outputs=[intro_content, species_guide_content, back_button, guide_button]
     )
 
+    # Help popup handlers
+    prob_help_button.click(
+        fn=show_prob_help,
+        outputs=[prob_help_popup]
+    )
+
+    prob_help_close.click(
+        fn=hide_prob_help,
+        outputs=[prob_help_popup]
+    )
+
+    acc_help_button.click(
+        fn=show_acc_help,
+        outputs=[acc_help_popup]
+    )
+
+    acc_help_close.click(
+        fn=hide_acc_help,
+        outputs=[acc_help_popup]
+    )
+
+    selection_help_button.click(
+        fn=show_selection_help,
+        outputs=[selection_help_popup]
+    )
+
+    selection_help_close.click(
+        fn=hide_selection_help,
+        outputs=[selection_help_popup]
+    )
+
     for btn in species_buttons:
         btn.click(
             fn=check_answer,
             inputs=[gr.State(btn.value)],
-            outputs=[result_display, status_display, image_display, model_predictions_display, prob_plot, accuracy_plot]
+            outputs=[result_display, status_with_help, image_display, model_predictions_display, prob_plot, accuracy_plot]
         )
 
     idk_button.click(
         fn=check_answer,
         inputs=[gr.State("I don't know")],
-        outputs=[result_display, status_display, image_display, model_predictions_display, prob_plot, accuracy_plot]
+        outputs=[result_display, status_with_help, image_display, model_predictions_display, prob_plot, accuracy_plot]
+    )
+
+    # Add JavaScript to handle inline help button clicks
+    demo.load(
+        lambda: None,
+        outputs=[],
+        js="""
+        () => {
+            setTimeout(() => {
+                document.addEventListener('click', function(e) {
+                    if (e.target && e.target.classList.contains('inline-help-btn')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const hiddenBtn = document.getElementById('hidden-selection-help-btn');
+                        if (hiddenBtn) {
+                            hiddenBtn.click();
+                        }
+                    }
+                });
+            }, 100);
+        }
+        """
     )
 
 if __name__ == "__main__":
