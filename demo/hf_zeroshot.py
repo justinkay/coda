@@ -90,13 +90,8 @@ def run_bioclip_inference(image_paths, class_names):
                 print(f"Processing image {i+1}/{len(image_paths)}: {os.path.basename(image_path)}")
 
             try:
-                # Use classifier's predict function
                 predictions = classifier.predict(image_path, k=len(class_names))
-
-                # Convert predictions to our format
                 scores = {}
-
-                # Initialize all classes with 0
                 for class_name in class_names:
                     scores[class_name] = 0.0
 
@@ -118,9 +113,6 @@ def run_bioclip_inference(image_paths, class_names):
 
         return results
 
-    except ImportError:
-        print("bioclip not available, skipping BioCLIP")
-        return None
     except Exception as e:
         print(f"Error loading BioCLIP: {e}")
         return None
@@ -147,13 +139,8 @@ def run_siglip_inference(image_paths, class_names):
                     print(f"Processing image {i+1}/{len(image_paths)}: {os.path.basename(image_path)}")
 
                 try:
-                    # Load and process image
                     image = Image.open(image_path).convert("RGB")
-
-                    # Create prompt templates for SigLIP (as recommended in docs)
                     prompts = [f"This is a photo of a {class_name.lower()}" for class_name in class_names]
-
-                    # Process inputs with proper padding
                     inputs = processor(
                         text=prompts,
                         images=image,
@@ -161,19 +148,11 @@ def run_siglip_inference(image_paths, class_names):
                         padding="max_length"
                     ).to(device)
 
-                    # Get outputs
                     outputs = model(**inputs)
-
-                    # Get similarity scores (logits_per_image)
                     logits_per_image = outputs.logits_per_image
-
-                    # Apply sigmoid to get probabilities (SigLIP uses pairwise sigmoid loss)
                     sigmoid_probs = torch.sigmoid(logits_per_image).squeeze(0)
-
-                    # Convert to relative probabilities using softmax for comparison
                     probabilities = torch.softmax(logits_per_image, dim=-1).squeeze(0)
 
-                    # Convert to dictionary
                     scores = {}
                     for j, class_name in enumerate(class_names):
                         scores[class_name] = probabilities[j].item()
@@ -209,16 +188,19 @@ def run_zeroshot_inference(model_name, image_paths, class_names):
                 print(f"Processing image {i+1}/{len(image_paths)}: {os.path.basename(image_path)}")
 
             try:
-                # Load and process image
                 image = Image.open(image_path).convert("RGB")
+                prompts = [f"a photo of a {class_name.lower()}" for class_name in class_names]
+                outputs = classifier(image, prompts)
 
-                # Run inference
-                outputs = classifier(image, class_names)
-
-                # Convert to post-softmax scores
                 scores = {}
                 for output in outputs:
-                    scores[output['label']] = output['score']
+                    prompt = output['label']
+                    # Find corresponding class name
+                    for i, p in enumerate(prompts):
+                        if p == prompt:
+                            class_name = class_names[i]
+                            scores[class_name] = output['score']
+                            break
 
                 # Ensure all classes are present (fill missing with 0)
                 for class_name in class_names:
