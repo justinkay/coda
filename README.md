@@ -2,8 +2,7 @@
 
 [ [arXiv](https://www.arxiv.org/abs/2507.23771) ] [ [ICCV](https://iccv.thecvf.com/virtual/2025/poster/2621) ] [ Demo coming soon! ]
 
-The widespread availability of off-the-shelf machine learning models---for instance, the more than 1.9M currently available on [HuggingFace Models](https://huggingface.co/models?sort=trending)---poses a challenge: which model, of the
-many available candidates, should be chosen for a given data analysis task?
+The widespread availability of off-the-shelf machine learning models -- for instance, the more than 2M currently available on [HuggingFace Models](https://huggingface.co/models?sort=trending) -- poses a challenge: which model, of the many available candidates, should be chosen for a given data analysis task?
 
 We introduce <b>CODA</b>, a <b>co</b>nsensus-<b>d</b>riven method for <b>a</b>ctive model selection, to answer this question as efficiently as possible:
 
