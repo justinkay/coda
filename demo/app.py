@@ -129,7 +129,7 @@ def add_logo_to_x_axis(ax, x_pos, logo_path, model_name, height_px=35):
 
         # Position logo to the left of the x-tick
         logo_offset = -0.2  # Adjust this to move logo left/right relative to tick
-        y_offset = -0.06
+        y_offset = -0.08
         ab = AnnotationBbox(imagebox, (x_pos + logo_offset, y_offset),
                            xycoords=('data', 'axes fraction'), frameon=False)
         ax.add_artist(ab)
@@ -230,19 +230,19 @@ def create_probability_chart():
     # Find the index of the highest probability
     best_idx = np.argmax(probabilities)
 
-    fig, ax = plt.subplots(figsize=(8, 3.5), dpi=150)
+    fig, ax = plt.subplots(figsize=(8, 2.8), dpi=150)
 
     # Create colors array - highlight the best model
     colors = ['orange' if i == best_idx else 'steelblue' for i in range(len(model_labels))]
     bars = ax.bar(range(len(model_labels)), probabilities, color=colors, alpha=0.7)
 
     # Add text above the highest bar
-    ax.text(best_idx, probabilities[best_idx] + 0.005, 'Current best guess',
+    ax.text(best_idx, probabilities[best_idx] + 0.0025, 'Current best guess',
             ha='center', va='bottom', fontsize=12, fontweight='bold')
 
     ax.set_ylabel('Probability model is best', fontsize=12)
     ax.set_title(f'CODA Model Selection Probabilities (Iteration {iteration_count})', fontsize=12)
-    ax.set_ylim(np.min(probabilities) - 0.025, np.max(probabilities) + 0.05)
+    ax.set_ylim(np.min(probabilities) - 0.01, np.max(probabilities) + 0.02)
 
     # Set x-axis labels and ticks
     ax.set_xticks(range(len(model_labels)))
@@ -276,7 +276,7 @@ def create_accuracy_chart():
     # Find the index of the highest accuracy
     best_idx = np.argmax(accuracies)
 
-    fig, ax = plt.subplots(figsize=(8, 3.5), dpi=150)
+    fig, ax = plt.subplots(figsize=(8, 2.8), dpi=150)
 
     # Create colors array - highlight the best model
     colors = ['red' if i == best_idx else 'forestgreen' for i in range(len(model_labels))]
@@ -318,21 +318,89 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                .subtle-outline .flex {
                    background-color: white !important;
                }
+
+               /* Popup overlay styles */
+               .popup-overlay {
+                   position: fixed;
+                   top: 0;
+                   left: 0;
+                   width: 100%;
+                   height: 100%;
+                   background-color: rgba(0, 0, 0, 0.5);
+                   z-index: 1000;
+                   display: flex;
+                   justify-content: center;
+                   align-items: center;
+               }
+
+               .popup-overlay > div {
+                   background: transparent !important;
+                   border: none !important;
+                   padding: 0 !important;
+                   margin: 0 !important;
+               }
+
+               .popup-content {
+                   background: white !important;
+                   padding: 2rem !important;
+                   border-radius: 1rem !important;
+                   max-width: 850px;
+                   width: 90%;
+                   max-height: 80vh;
+                   overflow-y: auto;
+                   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+                   border: none !important;
+                   margin: 0 !important;
+               }
+
+               .popup-content > div {
+                   background: white !important;
+                   border: none !important;
+                   padding: 0 !important;
+                   margin: 0 !important;
+               }
+
+               /* Center title */
+               .text-center {
+                   text-align: center !important;
+               }
+
+               /* Subtitle styling */
+               .subtitle {
+                   text-align: center !important;
+                   font-weight: 300 !important;
+                   color: #666 !important;
+                   margin-top: -0.5rem !important;
+               }
                """) as demo:
-    gr.Markdown("""
-                # Consensus-Driven Active Model Selection (CODA): Wildlife Photo Classification Challenge
-                
-                **Which AI model will classify your data the best?** We introduce **CODA**, a state-of-the-art method for **active model selection**.
+    # Main page title
+    gr.Markdown("# CODA: Consensus-Driven Active Model Selection", elem_classes="text-center")
 
-                In active model selection, we begin with a completely **unlabeled target dataset**, and aim to **select the best candidate
-                model with as few ground truth labels as possible**. CODA intelligently selects data points that efficiently discriminate
-                between the candidates, empirically outperforming other active model selection techniques by upwards of 70\%.
+    # Popup component
+    with gr.Group(visible=True, elem_classes="popup-overlay") as popup_overlay:
+        with gr.Group(elem_classes="popup-content"):
+            gr.Markdown("""
+            # CODA: Consensus-Driven Active Model Selection 
+            
+            ## Wildlife Photo Classification Challenge
 
-                **Try it yourself!** You will begin with a completely unlabeled dataset of wildlife imagery collected from real camera trap deployments. 
-                First, use our <a href="">species guide</a> to become an expert in wildlife classification.
-                CODA will ask you to label images one at a time in order to differentiate the top-performing model. You can track CODA's confidence in its choice 
-                over time, and see how this aligns with true model accuracy.
-                """)
+            You are a wildlife ecologist who has just collected a season's worth of imagery from cameras 
+            deployed in Africa and South America. You want to know what species occur in this imagery, 
+            and you are hoping to take advantage of pre-trained species classifiers to give you answers quickly. 
+            But which one should you use? 
+            
+            Instead of labeling a large validation set, our new method, **CODA**, enables you to perform **active model selection**. 
+            That is, CODA uses predictions from candidate models to guide the labeling process, querying you (a species identification expert) 
+            for labels on a select few images that will most efficiently differentiate between your candidate machine learning models.
+
+            This demo lets you try CODA yourself! First, become a species identification expert by reading our classification guide 
+            so that you will be equipped to provide ground truth labels. Then, watch as CODA narrows down the best model over time 
+            as you provide labels for the query images. You will see that with your input CODA is able to identify the best model candidate
+            with as few as ten (correctly) labeled images.
+            """)
+
+            with gr.Row():
+                popup_start_button = gr.Button("Start Demo", variant="primary", size="lg")
     
     # Two panels with bar charts
     with gr.Row():
@@ -382,19 +450,40 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
     # Result display
     result_display = gr.Markdown("", visible=True)
     
-    # Add start demo button
-    start_button = gr.Button("Start CODA Demo", variant="primary", size="lg")
+    # Add start over button
+    start_over_button = gr.Button("Start Over", variant="secondary", size="lg")
 
     # Set up button interactions
     def start_demo():
+        global iteration_count, coda_selector
+        # Reset the demo state
+        iteration_count = 0
+        coda_selector = CODA.from_args(dataset, args)
+
         image, status, predictions = get_next_coda_image()
         prob_plot = create_probability_chart()
         acc_plot = create_accuracy_chart()
-        return image, status, predictions, prob_plot, acc_plot, gr.update(visible=False)
+        return image, status, predictions, prob_plot, acc_plot, gr.update(visible=False), ""
 
-    start_button.click(
+    def start_over():
+        global iteration_count, coda_selector
+        # Reset the demo state
+        iteration_count = 0
+        coda_selector = CODA.from_args(dataset, args)
+
+        # Reset all displays
+        prob_plot = create_probability_chart()
+        acc_plot = create_accuracy_chart()
+        return None, "Demo reset. Click 'Start CODA Demo' to begin.", "### Model Predictions\n\n*Start the demo to see model votes!*", prob_plot, acc_plot, "", gr.update(visible=True)
+
+    popup_start_button.click(
         fn=start_demo,
-        outputs=[image_display, status_display, model_predictions_display, prob_plot, accuracy_plot, start_button]
+        outputs=[image_display, status_display, model_predictions_display, prob_plot, accuracy_plot, popup_overlay, result_display]
+    )
+
+    start_over_button.click(
+        fn=start_over,
+        outputs=[image_display, status_display, model_predictions_display, prob_plot, accuracy_plot, result_display, popup_overlay]
     )
 
     for btn in species_buttons:
@@ -413,5 +502,5 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
 if __name__ == "__main__":
     demo.launch(
         # share=True,
-        server_port=7861
+        server_port=7862
     )
