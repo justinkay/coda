@@ -3,7 +3,6 @@ from torch.distributions import Beta
 import torch.nn.functional as F
 from tqdm import tqdm
 import random
-import mlflow
 
 from coda.base import ModelSelector
 from coda.util import Ensemble, _check, _check_prob, plot_bar
@@ -298,6 +297,7 @@ class CODA(ModelSelector):
             raise NotImplementedError(self.q)
 
         if _DEBUG_VIZ:
+            import mlflow
             img = plot_bar(q_vals)
             mlflow.log_image(img, key="EIG", step=self.step)
             img.save('eig-'+str(self.step)+'.png')
@@ -335,6 +335,7 @@ class CODA(ModelSelector):
         pbest = self.get_pbest()
         
         if _DEBUG_VIZ:
+            import mlflow
             img = plot_bar(pbest)
             mlflow.log_image(img, key="PBest", step=self.step)
             img.save('pbest-'+str(self.step)+'.png')

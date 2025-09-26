@@ -2,6 +2,13 @@ import torch
 import os
 
 class Dataset:
+    """
+    A model selection dataset is a tensor of shape (H,N,C) containing post-softmax prediction scores, 
+    where H is the number of models, N is the number of datapoints, and C is the number of classes.
+
+    Optionally, it can also contain an (N,) shaped matrix (assumed to be a file appended with '_labels.pt')
+    of ground-truth class labels.
+    """
     def __init__(self, filepath, device):
         self.device = device
         self.preds = torch.load(filepath, map_location=device).float() # avoid fp16 precision errors
