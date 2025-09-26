@@ -15,6 +15,12 @@ from collections import OrderedDict
 import warnings
 warnings.filterwarnings("ignore")
 
+try:
+    import open_clip
+    OPEN_CLIP_AVAILABLE = True
+except ImportError:
+    OPEN_CLIP_AVAILABLE = False
+
 # Species mapping from demo/app.py
 SPECIES_MAP = OrderedDict([
     (24, "Jaguar"),           # panthera onca
@@ -25,8 +31,8 @@ SPECIES_MAP = OrderedDict([
     (163, "African Wild Dog") # lycaon pictus
 ])
 
-# Class names with "Other" category
-CLASS_NAMES = list(SPECIES_MAP.values()) + ["Other"]
+# Class names
+CLASS_NAMES = list(SPECIES_MAP.values())
 
 # Models to test
 MODELS = [
@@ -53,6 +59,67 @@ def load_demo_annotations():
             }
 
     return image_metadata
+
+def run_bioclip_inference(image_paths, class_names):
+    """Run zero-shot inference using BioCLIP with open_clip."""
+    if not OPEN_CLIP_AVAILABLE:
+        print("open_clip not available, skipping BioCLIP")
+        return None
+
+    print("Loading BioCLIP model...")
+    try:
+        model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:imageomics/bioclip')
+        tokenizer = open_clip.get_tokenizer('hf-hub:imageomics/bioclip')
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = model.to(device)
+        model.eval()
+
+        # Tokenize class names
+        text_tokens = tokenizer(class_names).to(device)
+
+        results = {}
+
+        with torch.no_grad():
+            for i, image_path in enumerate(image_paths):
+                if i % 10 == 0:
+                    print(f"Processing image {i+1}/{len(image_paths)}: {os.path.basename(image_path)}")
+
+                try:
+                    # Load and preprocess image
+                    image = Image.open(image_path).convert("RGB")
+                    image_tensor = preprocess_val(image).unsqueeze(0).to(device)
+
+                    # Get embeddings
+                    image_features = model.encode_image(image_tensor)
+                    text_features = model.encode_text(text_tokens)
+
+                    # Normalize features
+                    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+                    # Calculate similarities
+                    similarities = (image_features @ text_features.T).squeeze(0)
+
+                    # Apply softmax to get probabilities
+                    probabilities = torch.softmax(similarities, dim=0)
+
+                    # Convert to dictionary
+                    scores = {}
+                    for j, class_name in enumerate(class_names):
+                        scores[class_name] = probabilities[j].item()
+
+                    results[os.path.basename(image_path)] = scores
+
+                except Exception as e:
+                    print(f"Error processing {image_path}: {e}")
+                    results[os.path.basename(image_path)] = {class_name: 0.0 for class_name in class_names}
+
+        return results
+
+    except Exception as e:
+        print(f"Error loading BioCLIP: {e}")
+        return None
 
 def run_zeroshot_inference(model_name, image_paths, class_names):
     """Run zero-shot inference using specified model."""
@@ -121,14 +188,21 @@ def main():
         print(f"Running inference with {model_name}")
         print(f"{'='*60}")
 
-        # Run zero-shot inference
-        results = run_zeroshot_inference(model_name, image_paths, CLASS_NAMES)
+        # Check if results already exist
+        model_safe_name = model_name.replace("/", "_").replace("-", "_")
+        output_file = f"zeroshot_results_{model_safe_name}.json"
+
+        if os.path.exists(output_file):
+            print(f"Results file {output_file} already exists, skipping {model_name}")
+            continue
+
+        # Handle BioCLIP separately
+        if model_name == "imageomics/bioclip":
+            results = run_bioclip_inference(image_paths, CLASS_NAMES)
+        else:
+            results = run_zeroshot_inference(model_name, image_paths, CLASS_NAMES)
 
         if results is not None:
-            # Save results to JSON file
-            model_safe_name = model_name.replace("/", "_").replace("-", "_")
-            output_file = f"zeroshot_results_{model_safe_name}.json"
-
             # Add metadata to results
             output_data = {
                 "model": model_name,
