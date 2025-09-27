@@ -193,7 +193,7 @@ def check_answer(user_choice):
         if user_choice == correct_species:
             result = f"🎉 Correct! The last image was indeed a {correct_species}!"
         else:
-            result = f"❌ Incorrect. This is a {correct_species}, not a {user_choice}. This may mislead the model selection process!"
+            result = f"❌ Incorrect. The last image was a {correct_species}, not a {user_choice}. This may mislead the model selection process!"
 
     # Update CODA with the label
     coda_selector.add_label(chosen_idx, user_class_idx, selection_prob)
@@ -471,6 +471,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                    display: none;
                }
 
+
                /* Reduce spacing around status text */
                .status-text {
                    margin: 0 !important;
@@ -692,7 +693,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             )
     
     gr.Markdown("### Which species is this?")
-    
+
     with gr.Row():
         # Create buttons for each species
         species_buttons = []
@@ -811,6 +812,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
         outputs=[selection_help_popup]
     )
 
+
     for btn in species_buttons:
         btn.click(
             fn=check_answer,
@@ -849,5 +851,5 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
 if __name__ == "__main__":
     demo.launch(
         # share=True,
-        server_port=7862
+        server_port=7861
     )
