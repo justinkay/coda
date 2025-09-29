@@ -184,9 +184,9 @@ def check_answer(user_choice):
 
     # Convert user choice to class index (0-5)
     if user_choice == "I don't know":
-        # For "I don't know", we'll use the correct label but show it to user
-        user_class_idx = NAME_TO_CLASS_IDX[correct_species]
-        result = f"The correct answer was: {correct_species}"
+        # For "I don't know", just remove from sampling without providing label
+        coda_selector.unlabeled_idxs.remove(chosen_idx)
+        result = f"The last image was skipped and will not be used for model selection. The correct species was {correct_species}. "
     else:
         user_class_idx = NAME_TO_CLASS_IDX.get(user_choice, NAME_TO_CLASS_IDX[correct_species])
         if user_choice == correct_species:
@@ -194,8 +194,9 @@ def check_answer(user_choice):
         else:
             result = f"❌ Incorrect. The last image was a {correct_species}, not a {user_choice}. This may mislead the model selection process!"
 
-    # Update CODA with the label
-    coda_selector.add_label(chosen_idx, user_class_idx, selection_prob)
+        # Update CODA with the label
+        coda_selector.add_label(chosen_idx, user_class_idx, selection_prob)
+
     iteration_count += 1
 
     # Get updated plots
