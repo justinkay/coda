@@ -21,14 +21,13 @@ try:
 except ImportError:
     OPEN_CLIP_AVAILABLE = False
 
-# Species mapping from demo/app.py
+# Species mapping from demo/app.py (African Wild Dog removed)
 SPECIES_MAP = OrderedDict([
     (24, "Jaguar"),           # panthera onca
     (10, "Ocelot"),           # leopardus pardalis
     (6, "Mountain Lion"),     # puma concolor
     (101, "Common Eland"),    # tragelaphus oryx
     (102, "Waterbuck"),       # kobus ellipsiprymnus
-    (163, "African Wild Dog") # lycaon pictus
 ])
 
 # Class names
@@ -40,8 +39,7 @@ DESCRIPTIVE_CLASS_NAMES = [
     "an ocelot cat",
     "a mountain lion cougar",
     "a common eland antelope",
-    "a waterbuck antelope",
-    "an African wild dog"
+    "a waterbuck antelope"
 ]
 
 # Models to test

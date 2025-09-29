@@ -24,16 +24,15 @@ with open('iwildcam_demo_annotations.json', 'r') as f:
 
 SPECIES_MAP = OrderedDict([
     (24, "Jaguar"),           # panthera onca
-    (10, "Ocelot"),           # leopardus pardalis  
+    (10, "Ocelot"),           # leopardus pardalis
     (6, "Mountain Lion"),     # puma concolor
     (101, "Common Eland"),    # tragelaphus oryx
     (102, "Waterbuck"),       # kobus ellipsiprymnus
-    (163, "African Wild Dog") # lycaon pictus
 ])
 NAME_TO_ID = {name: id for id, name in SPECIES_MAP.items()}
 
-# Class names in order (0-5) from classes.txt
-CLASS_NAMES = ["Jaguar", "Ocelot", "Mountain Lion", "Common Eland", "Waterbuck", "African Wild Dog"]
+# Class names in order (0-4) from classes.txt
+CLASS_NAMES = ["Jaguar", "Ocelot", "Mountain Lion", "Common Eland", "Waterbuck"]
 NAME_TO_CLASS_IDX = {name: idx for idx, name in enumerate(CLASS_NAMES)}
 
 # Model information from models.txt
@@ -555,7 +554,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                 gr.Markdown("""
                 # Species Classification Guide
                  
-                ### Learn to identify the six wildlife species in this demo.
+                ### Learn to identify the five wildlife species in this demo.
                 
                 ## Jaguar
                 """)
@@ -609,16 +608,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                 
                 ----
                             
-                ## African Wild Dog
                 """)
-
-                gr.Image("species_id/africanwilddog.jpg", label="Waterbuck example image", show_label=False)
-
-                gr.Markdown("""
-                A highly social canid with large rounded ears, long legs, and a mottled coat of irregular black, white, and tan patches.
-                """)
-
-            gr.Markdown("<br>")  # Add some spacing
 
             with gr.Row():
                 back_button = gr.Button("← Back to Intro", variant="secondary", size="lg", visible=False)
