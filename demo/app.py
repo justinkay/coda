@@ -353,6 +353,20 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                    border: none !important;
                    padding: 0 !important;
                    margin: 0 !important;
+                   overflow-y: visible !important;
+                   max-height: none !important;
+               }
+
+               /* Ensure gradio column components don't interfere with scrolling */
+               .popup-content .gradio-column {
+                   overflow-y: visible !important;
+                   max-height: none !important;
+               }
+
+               /* Ensure images in popup are responsive */
+               .popup-content img {
+                   max-width: 100% !important;
+                   height: auto !important;
                }
 
                /* Center title */
@@ -471,7 +485,6 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
                    display: none;
                }
 
-
                /* Reduce spacing around status text */
                .status-text {
                    margin: 0 !important;
@@ -523,7 +536,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             ## Wildlife Photo Classification Challenge
 
             You are a wildlife ecologist who has just collected a season's worth of imagery from cameras
-            deployed in Africa and South America. You want to know what species occur in this imagery,
+            deployed in Africa and Central and South America. You want to know what species occur in this imagery,
             and you hope to use a pre-trained classifier to give you answers quickly.
             But which one should you use?
 
@@ -538,41 +551,72 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             """)
 
             # Species guide content (initially hidden)
-            species_guide_content = gr.Markdown("""
-            # Species Classification Guide
+            with gr.Column(visible=False) as species_guide_content:
+                gr.Markdown("""
+                # Species Classification Guide
+                 
+                ### Learn to identify the six wildlife species in this demo.
+                
+                ## Jaguar
+                """)
 
-            Learn to identify the six wildlife species in this demo:
+                gr.Image("species_id/jaguar.jpg", label="Jaguar example image", show_label=False)
 
-            ## Jaguar
-            *Panthera onca*
+                gr.Markdown("""       
+                The largest cat in the Americas, with a stocky, muscular build and a broad head; its golden coat is patterned with rosettes that often have central spots inside.
 
-            [Placeholder for jaguar image and description]
+                ----
+                
+                ## Ocelot
+                
+                """)
 
-            ## Ocelot
-            *Leopardus pardalis*
+                gr.Image("species_id/ocelot.jpg", label="Ocelot example image", show_label=False)
 
-            [Placeholder for ocelot image and description]
+                gr.Markdown("""
+                A medium-sized spotted cat about twice the size of a domestic cat, with a slender body, large eyes, and striking chain-link or stripe-like rosettes. It differs from jaguars by its smaller size, leaner build, and more elongated markings.
+                            
+                ----
+                            
+                ## Mountain Lion
+                """)
 
-            ## Mountain Lion
-            *Puma concolor*
+                gr.Image("species_id/mountainlion.jpg", label="Mountain lion example image", show_label=False)
 
-            [Placeholder for mountain lion image and description]
+                gr.Markdown("""
+                Also called cougar or puma, this cat has a plain tawny or grayish coat without spots or rosettes. Its long tail and uniformly colored fur distinguish it from jaguars and ocelots.
+                
+                ----
+                            
+                ## Common Eland
 
-            ## Common Eland
-            *Tragelaphus oryx*
+                """)
 
-            [Placeholder for common eland image and description]
+                gr.Image("species_id/commoneland.jpg", label="Eland example image", show_label=False)
 
-            ## Waterbuck
-            *Kobus ellipsiprymnus*
+                gr.Markdown("""
+                The largest antelope species, with a robust body, spiraled horns on both sexes, and a characteristic dewlap hanging from the throat. It differs from waterbuck by its lighter tan coat, faint body stripes, and massive size.
 
-            [Placeholder for waterbuck image and description]
+                ----
+                            
+                ## Waterbuck
+                """)
 
-            ## African Wild Dog
-            *Lycaon pictus*
+                gr.Image("species_id/waterbuck.jpg", label="Waterbuck example image", show_label=False)
 
-            [Placeholder for african wild dog image and description]
-            """, visible=False)
+                gr.Markdown("""
+                A shaggy, dark brown antelope recognized by its white rump ring and backward-curving horns in males. Smaller and darker than the common eland, waterbuck prefer wet habitats and lack the eland's throat dewlap.
+                
+                ----
+                            
+                ## African Wild Dog
+                """)
+
+                gr.Image("species_id/africanwilddog.jpg", label="Waterbuck example image", show_label=False)
+
+                gr.Markdown("""
+                A highly social canid with large rounded ears, long legs, and a mottled coat of irregular black, white, and tan patches.
+                """)
 
             gr.Markdown("<br>")  # Add some spacing
 
@@ -590,17 +634,16 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             This chart shows CODA's current confidence in each candidate model being the best performer.
 
             **How to read this chart:**
-            - Each bar represents one of the three machine learning models
-            - The height of each bar shows the probability (0-100%) that this model is the best
+            - Each bar represents one of the candidate machine learning models
+            - The height of each bar shows the probability (0-100%) that this model is the best, according to CODA
             - The orange bar indicates CODA's current best guess
             - As you provide more labels, CODA updates these probabilities
 
             **What you'll see:**
-            - Initially, all models have similar probabilities (uniform prior)
+            - CODA initializes these probabilities based on each model's agreement with the consensus, providing informative priors
             - As you label images, some models will gain confidence while others lose it
             - The goal is for one model to clearly emerge as the winner
-
-            [Placeholder: This is where we would explain the specific methodology behind CODA's probability calculations]
+                        
             """)
             prob_help_close = gr.Button("Close", variant="secondary")
 
@@ -609,7 +652,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             gr.Markdown("""
             ## True Model Accuracies
 
-            This chart shows the actual performance of each model on the complete dataset (oracle knowledge).
+            This chart shows the actual performance of each model on the complete dataset (only possible with oracle knowledge).
 
             **How to read this chart:**
             - Each bar represents the true accuracy of one model
@@ -622,7 +665,6 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             - In real scenarios, you wouldn't know these true accuracies beforehand
             - The demo shows these to illustrate how CODA's estimates align with reality
 
-            [Placeholder: This is where we would explain how these accuracies were computed and what they mean for the application]
             """)
             acc_help_close = gr.Button("Close", variant="secondary")
 
@@ -631,26 +673,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             gr.Markdown("""
             ## How CODA Selects Images for Labeling
 
-            This explains how CODA intelligently chooses which images to ask you to label next.
-
-            **CODA's Selection Strategy:**
-            - CODA uses **Expected Information Gain (EIG)** to select the most informative images
-            - It chooses images where the candidate models disagree the most
-            - Each selected image is expected to provide maximum information to distinguish between models
-            - The selection process balances exploration of uncertain regions with exploitation of known patterns
-
-            **Why This Image:**
-            - This particular image was chosen because the models have conflicting predictions
-            - Your label on this image will help CODA update its confidence in each model
-            - The selection probability indicates how strongly CODA wanted to query this specific image
-            - Images with higher disagreement among models are prioritized
-
-            **Active Learning Benefits:**
-            - This approach requires far fewer labels than random sampling
-            - CODA can identify the best model with as few as 10-20 strategically chosen labels
-            - The process is much more efficient than traditional validation approaches
-
-            [Placeholder: This is where we would explain the mathematical details of the EIG calculation and model disagreement metrics]
+            [Placeholder]
             """)
             selection_help_close = gr.Button("Close", variant="secondary")
     
@@ -693,7 +716,7 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
             )
     
     gr.Markdown("### Which species is this?")
-
+    
     with gr.Row():
         # Create buttons for each species
         species_buttons = []
@@ -812,7 +835,6 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
         outputs=[selection_help_popup]
     )
 
-
     for btn in species_buttons:
         btn.click(
             fn=check_answer,
@@ -851,5 +873,6 @@ with gr.Blocks(title="CODA: Wildlife Photo Classification Challenge",
 if __name__ == "__main__":
     demo.launch(
         # share=True,
-        server_port=7861
+        server_port=7861,
+        allowed_paths=["/"]
     )
