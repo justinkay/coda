@@ -28,7 +28,7 @@ pip install -e .
 
 ## Dataset download
 
-[Data download (3.25GB)](https://drive.google.com/file/d/1H8zXwAGkkAQP5L1gofpeF69jeIZqzPaW/view?usp=sharing)
+[Data download (3.25GB)](https://drive.google.com/file/d/1GNy1sWdXxFKnhxiMZy-isnb2TAvzjR6K/view?usp=sharing)
 
 ## Run an active model selection experiment
 
