@@ -18,7 +18,7 @@ reducing the annotation effort required to discover the best model by upwards of
 
 ## Install
 
-**1. Install PyTorch and torchvision.** Follow the [official install guide](https://pytorch.org/get-started/locally/) to install the correct versions for your CUDA version or CPU.
+**1. Install PyTorch.** Follow the [official install guide](https://pytorch.org/get-started/locally/) to install the correct versions for your CUDA version or CPU.
 
 **2. Install CODA.** Clone this repository and run:
 
